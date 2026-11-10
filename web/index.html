@@ -44,6 +44,7 @@
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
@@ -56,8 +57,13 @@
 
   .page { max-width: 1120px; margin: 0 auto; padding: 40px 24px 64px; }
 
-  .top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 16px 32px; flex-wrap: wrap; margin-bottom: 32px; }
+  .top-left { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
   .brand { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .nav { display: flex; gap: 4px; }
+  .nav a { padding: 6px 10px; border-radius: 7px; color: var(--muted); text-decoration: none; font-weight: 500; }
+  .nav a:hover { color: var(--ink); }
+  .nav a[aria-current="page"] { color: var(--ink); background: var(--paper); box-shadow: inset 0 0 0 1px var(--line); }
   .summary { margin: 0; color: var(--muted); }
   .summary strong { color: var(--ink); font-weight: 600; }
 
@@ -76,6 +82,7 @@
   .field textarea { min-height: 128px; resize: vertical; }
   .field input:focus-visible, .field textarea:focus-visible { outline-offset: 0; border-color: var(--focus); }
   .field[data-invalid] input, .field[data-invalid] textarea { border-color: var(--danger); }
+  .field .hint:empty { display: none; }
   .field .hint { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
   .field[data-invalid] .hint { color: var(--danger); }
 
@@ -102,7 +109,6 @@
 
   .queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 
-  /* Le ticket : une souche numérotée, séparée du corps par une perforation */
   .ticket {
     --notch: 9px;
     display: grid; grid-template-columns: 104px minmax(0, 1fr);
@@ -158,8 +164,45 @@
   }
   .toast.show { opacity: 1; }
 
+  .infra-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px 24px; flex-wrap: wrap; margin-bottom: 28px; }
+  .infra-head h2 { margin: 0; font-size: 28px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; }
+  .verdict { margin: 4px 0 0; font-size: 18px; }
+  .verdict.bad { color: var(--danger); }
+  .checked { margin: 0; font-size: 14px; color: var(--muted); }
+
+  .flow { display: grid; grid-template-columns: 1fr 120px 1fr 120px 1fr; align-items: stretch; }
+  .node { background: var(--paper); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .node.down { box-shadow: inset 0 0 0 2px var(--danger); }
+  .node-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .node h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .node .host { font-size: 13px; color: var(--muted); }
+  .pill { padding: 2px 8px; border-radius: 6px; font-size: 13px; font-weight: 600; white-space: nowrap; background: var(--done-bg); color: var(--done); }
+  .pill.warn { background: var(--open-bg); color: var(--open); }
+  .pill.bad { background: color-mix(in srgb, var(--danger) 14%, var(--paper)); color: var(--danger); }
+  .figure { font-size: 44px; line-height: 1; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .figure small { display: block; margin-top: 6px; font-size: 14px; font-weight: 500; letter-spacing: 0; font-variant-numeric: normal; color: var(--muted); }
+  .facts { margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--muted); display: grid; gap: 4px; }
+  .facts b { color: var(--ink); font-weight: 600; }
+
+  .link { position: relative; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 8px; padding: 0 10px; text-align: center; }
+  .link .wire { --dash: var(--line); width: 100%; height: 3px; background: repeating-linear-gradient(90deg, var(--dash) 0 12px, transparent 12px 20px); }
+  .link.live .wire { --dash: var(--signal); animation: flow 1s linear infinite; }
+  .link.cut .wire { --dash: var(--danger); }
+  .link span { font-size: 13px; color: var(--muted); }
+  .link.cut span { color: var(--danger); font-weight: 600; }
+  @keyframes flow { from { background-position: 0 0; } to { background-position: 20px 0; } }
+
+  .side { margin-top: 24px; }
+
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
+  @media (max-width: 960px) {
+    .flow { grid-template-columns: 1fr; }
+    .link { flex-direction: row; padding: 8px 0; min-height: 56px; }
+    .link .wire { width: 3px; height: 40px; flex: none; background: repeating-linear-gradient(180deg, var(--dash) 0 12px, transparent 12px 20px); }
+    .link.live .wire { animation-name: flow-down; }
+  }
+  @keyframes flow-down { from { background-position: 0 0; } to { background-position: 0 20px; } }
   @media (max-width: 860px) {
     .page { padding: 24px 16px 48px; }
     .layout { grid-template-columns: 1fr; gap: 32px; }
@@ -176,7 +219,7 @@
     .resolve { margin-left: 0; width: 100%; margin-top: 4px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .ticket.fresh { animation: none; }
+    .ticket.fresh, .link.live .wire { animation: none; }
     .toast { transition: none; }
   }
 </style>
@@ -184,11 +227,17 @@
 <body>
 <div class="page">
   <header class="top">
-    <h1 class="brand">Helpdesk</h1>
+    <div class="top-left">
+      <h1 class="brand">Helpdesk</h1>
+      <nav class="nav" aria-label="Sections">
+        <a href="/" data-view="tickets">Demandes</a>
+        <a href="/infrastructure" data-view="infra">Infrastructure</a>
+      </nav>
+    </div>
     <p class="summary" id="summary" aria-live="polite">Chargement des demandes...</p>
   </header>
 
-  <div class="layout">
+  <div class="layout" id="view-tickets">
     <section class="compose" aria-labelledby="compose-title">
       <h2 id="compose-title">Un problème ?</h2>
       <p>Décrivez-le, le support vous répond par e&#8209;mail.</p>
@@ -202,12 +251,12 @@
         <div class="field" id="field-description">
           <label for="description">Détails</label>
           <textarea id="description" name="description" maxlength="2000" placeholder="Ce qui se passe, depuis quand, ce que vous avez déjà essayé."></textarea>
-          <span class="hint" id="hint-description">Plus c'est précis, plus c'est rapide.</span>
+          <span class="hint" id="hint-description"></span>
         </div>
         <div class="field" id="field-email">
           <label for="email">Votre e-mail</label>
           <input id="email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="prenom.nom@entreprise.fr">
-          <span class="hint" id="hint-email">La confirmation arrivera ici.</span>
+          <span class="hint" id="hint-email"></span>
         </div>
         <button class="primary" id="submit">Envoyer la demande</button>
         <p class="form-error" id="form-error" role="alert"></p>
@@ -232,6 +281,39 @@
       <p class="infra" id="infra"></p>
     </section>
   </div>
+
+  <section id="view-infra" hidden aria-labelledby="infra-title">
+    <div class="infra-head">
+      <div>
+        <h2 id="infra-title">Infrastructure</h2>
+        <p class="verdict" id="verdict" aria-live="polite">Vérification en cours...</p>
+      </div>
+      <p class="checked">Mis à jour toutes les 3 s</p>
+    </div>
+
+    <div class="flow">
+      <article class="node" id="node-primary">
+        <div class="node-head"><div><h3>Base principale</h3><span class="host">db</span></div><span class="pill" data-pill></span></div>
+        <div class="figure" data-figure></div>
+        <ul class="facts" data-facts></ul>
+      </article>
+      <div class="link" id="link-replication"><div class="wire"></div><span data-label></span></div>
+      <article class="node" id="node-replica">
+        <div class="node-head"><div><h3>Réplica</h3><span class="host">db-replica</span></div><span class="pill" data-pill></span></div>
+        <div class="figure" data-figure></div>
+        <ul class="facts" data-facts></ul>
+      </article>
+      <div class="link" id="link-backup"><div class="wire"></div><span data-label></span></div>
+      <article class="node" id="node-backup">
+        <div class="node-head"><div><h3>Sauvegardes</h3><span class="host">backup</span></div><span class="pill" data-pill></span></div>
+        <div class="figure" data-figure></div>
+        <ul class="facts" data-facts></ul>
+      </article>
+    </div>
+
+    <ul class="facts side" id="side"></ul>
+
+  </section>
 </div>
 
 <div class="toast" id="toast" role="status"></div>
@@ -266,6 +348,7 @@ async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
     headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    signal: AbortSignal.timeout(5000),
   });
   const data = await res.json().catch(() => null);
   return { res, data };
@@ -277,7 +360,7 @@ async function load() {
     if (!list.res.ok) throw new Error(list.res.status);
     state.tickets = list.data;
     state.error = false;
-    renderInfra(list.res.headers.get("X-Cache"), stats && stats.res.ok ? stats.data.source : null);
+    renderSource(list.res.headers.get("X-Cache"), stats && stats.res.ok ? stats.data.source : null);
   } catch {
     state.error = true;
   }
@@ -398,7 +481,7 @@ $("form").addEventListener("submit", async (event) => {
     state.fresh = data.id;
     state.filter = "open";
     syncFilters();
-    toast(`Demande n° ${data.id} envoyée. Une confirmation part à ${data.email}.`);
+    toast(`Demande n° ${data.id} envoyée.`);
     await load();
   } catch {
     $("form-error").textContent = "La demande n'a pas été envoyée : le service ne répond pas. Réessayez dans un instant.";
@@ -424,7 +507,7 @@ $("search").addEventListener("input", (event) => {
   render();
 });
 
-function renderInfra(cache, source) {
+function renderSource(cache, source) {
   const parts = [];
   if (cache) parts.push(cache === "HIT" ? "Liste servie depuis le cache Redis." : "Liste lue dans la base.");
   if (source) parts.push(source === "replica" ? "Compteurs lus sur le réplica." : "Compteurs lus sur la base principale.");
@@ -459,12 +542,147 @@ function toast(text) {
   toastTimer = setTimeout(() => $("toast").classList.remove("show"), 3500);
 }
 
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") load();
-});
-setInterval(() => document.visibilityState === "visible" && load(), 20000);
+// Navigation entre les deux vues, sans recharger la page
+const VIEWS = { tickets: "/", infra: "/infrastructure" };
+let view = location.pathname.startsWith(VIEWS.infra) ? "infra" : "tickets";
 
-load();
+function show(next, push) {
+  view = next;
+  if (push) history.pushState(null, "", VIEWS[next]);
+  $("view-tickets").hidden = next !== "tickets";
+  $("view-infra").hidden = next !== "infra";
+  $("summary").hidden = next !== "tickets";
+  for (const a of document.querySelectorAll(".nav a")) {
+    if (a.dataset.view === next) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+  document.title = next === "infra" ? "Infrastructure, Helpdesk" : "Helpdesk";
+  refresh();
+}
+
+document.querySelectorAll(".nav a").forEach((a) =>
+  a.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (a.dataset.view !== view) show(a.dataset.view, true);
+  }),
+);
+window.addEventListener("popstate", () => show(location.pathname.startsWith(VIEWS.infra) ? "infra" : "tickets", false));
+
+// Vue Infrastructure
+const number = new Intl.NumberFormat("fr-FR");
+
+function bytes(n) {
+  if (n < 1024) return `${number.format(n)} o`;
+  if (n < 1024 * 1024) return `${number.format(Math.round(n / 102.4) / 10)} Ko`;
+  return `${number.format(Math.round(n / 104857.6) / 10)} Mo`;
+}
+
+function ago(seconds) {
+  if (seconds < 60) return "à l'instant";
+  if (seconds < 3600) return `il y a ${Math.floor(seconds / 60)} min`;
+  if (seconds < 86400) return `il y a ${Math.floor(seconds / 3600)} h`;
+  return `il y a ${Math.floor(seconds / 86400)} j`;
+}
+
+function fact(label, value) {
+  const li = document.createElement("li");
+  const b = document.createElement("b");
+  b.textContent = value;
+  li.append(`${label} `, b);
+  return li;
+}
+
+function paint(id, { state, pill, figure, caption, facts }) {
+  const node = $(id);
+  node.classList.toggle("down", state === "bad");
+  const p = node.querySelector("[data-pill]");
+  p.textContent = pill;
+  p.className = `pill${state === "ok" ? "" : ` ${state}`}`;
+  const f = node.querySelector("[data-figure]");
+  f.textContent = figure;
+  if (caption) {
+    const small = document.createElement("small");
+    small.textContent = caption;
+    f.append(small);
+  }
+  node.querySelector("[data-facts]").replaceChildren(...facts.map(([l, v]) => fact(l, v)));
+}
+
+function wire(id, live, label) {
+  $(id).classList.toggle("live", live);
+  $(id).classList.toggle("cut", !live);
+  $(id).querySelector("[data-label]").textContent = label;
+}
+
+async function loadInfra() {
+  let data;
+  try {
+    const { res, data: body } = await api("/api/infra");
+    if (!res.ok) throw new Error(res.status);
+    data = body;
+  } catch {
+    $("verdict").textContent = "L'API ne répond pas.";
+    $("verdict").className = "verdict bad";
+    return;
+  }
+  const { primary: db, replica, backup, cache } = data;
+
+  paint("node-primary", db.ok
+    ? { state: "ok", pill: "En ligne", figure: number.format(db.tickets), caption: db.tickets > 1 ? "tickets" : "ticket",
+        facts: [["Répond en", `${number.format(db.latency_ms)} ms`], ["PostgreSQL", db.version]] }
+    : { state: "bad", pill: "Hors ligne", figure: "-", facts: [] });
+
+  const replicaUp = replica.ok;
+  paint("node-replica", replicaUp
+    ? { state: "ok", pill: "En ligne", figure: number.format(replica.tickets), caption: replica.tickets > 1 ? "tickets" : "ticket",
+        facts: [["Accès en", replica.read_only ? "lecture seule" : "écriture"], ["Répond en", `${number.format(replica.latency_ms)} ms`]] }
+    : { state: "bad", pill: "Hors ligne", figure: "-", facts: [] });
+
+  if (!db.ok || !replicaUp) wire("link-replication", false, "Réplication coupée");
+  else wire("link-replication", true, replica.lag_bytes === 0 ? "Réplication à jour" : `${bytes(replica.lag_bytes)} de retard`);
+
+  if (backup) {
+    paint("node-backup", {
+      state: backup.ok ? "ok" : "warn",
+      pill: backup.ok ? "À jour" : "En retard",
+      figure: ago(backup.age_s),
+      caption: `dernière sauvegarde, le ${backup.at.replace(" ", " à ")}`,
+      facts: [["Taille", bytes(backup.size_bytes)], ["Conservées", `${backup.kept}`], ["Toutes les", `${Math.round(data.backup_interval_s / 60)} min`]],
+    });
+    wire("link-backup", backup.ok, backup.source === "db-replica" ? "Lue sur le réplica" : "Lue sur la base principale");
+  } else {
+    paint("node-backup", { state: "warn", pill: "Aucune", figure: "-", facts: [] });
+    wire("link-backup", false, "En attente");
+  }
+
+  const problems = [];
+  if (!db.ok) problems.push("La base principale ne répond pas.");
+  if (!replicaUp) problems.push("Le réplica ne répond pas. L'application continue sur la base principale.");
+  if (!backup) problems.push("Aucune sauvegarde pour l'instant.");
+  else if (!backup.ok) problems.push("La dernière sauvegarde est trop ancienne.");
+  $("verdict").textContent = problems.length ? problems.join(" ") : "Tout fonctionne.";
+  $("verdict").className = `verdict${problems.length ? " bad" : ""}`;
+
+  let redisState = "non installé";
+  if (cache.configured) redisState = cache.ok ? `en ligne, ${number.format(cache.latency_ms)} ms` : "hors ligne";
+  $("side").replaceChildren(fact("Cache Redis :", redisState));
+}
+
+// Une seule boucle de rafraîchissement : la requête suivante part quand la précédente est finie,
+// toutes les 3 s sur l'infrastructure, toutes les 20 s sur les demandes, en pause si l'onglet est caché.
+let timer;
+let round = 0;
+async function refresh() {
+  clearTimeout(timer);
+  const current = ++round;
+  if (!document.hidden) await (view === "infra" ? loadInfra() : load());
+  if (current === round) timer = setTimeout(refresh, view === "infra" ? 3000 : 20000);
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refresh();
+});
+
+show(view, false);
 </script>
 </body>
 </html>
