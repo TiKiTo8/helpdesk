@@ -19,6 +19,10 @@ http:
       rule: "Host(`mail.localhost`)"
       service: mail
 
+    alertmanager:
+      rule: "Host(`alertmanager.localhost`)"
+      service: alertmanager
+
   services:
     web:
       loadBalancer:
@@ -40,3 +44,7 @@ http:
       loadBalancer:
         servers:
           - url: "http://mail:8025"
+    alertmanager:
+      loadBalancer:
+        servers:
+          - url: "http://alertmanager:9093"
