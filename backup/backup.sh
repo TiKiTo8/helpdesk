@@ -1,41 +1,46 @@
 #!/bin/sh
-# Sauvegarde de la base dans le volume /backups.
-#   sh /scripts/backup.sh       boucle : une sauvegarde toutes les BACKUP_INTERVAL secondes
-#   sh /scripts/backup.sh now   une seule sauvegarde, tout de suite
-# Connexion : PGHOST (le réplica), PGUSER, PGDATABASE, PGPASSWORD, lues directement par pg_dump.
+# Usage : backup.sh        sauvegarde toutes les BACKUP_INTERVAL secondes
+#         backup.sh now    une seule sauvegarde
 set -u
 
+PGPASSWORD="$(tr -d '\r\n' < /run/secrets/db_password)"
+export PGPASSWORD
+
+dir=/var/lib/postgresql/backups
+umask 077
+mkdir -p "$dir"
+
 dump() {
-  # -Fc : format compressé, restaurable table par table ; -Z zstd : plus rapide et compact que gzip.
-  pg_dump -h "$1" -Fc -Z zstd -f "$file.tmp"
+  pg_dump -h "$1" -Fc -Z zstd -f "$tmp"
 }
 
 backup() {
-  file="/backups/${PGDATABASE}-$(date +%Y%m%d-%H%M%S).dump"
+  file="$dir/$PGDATABASE-$(date +%Y%m%d-%H%M%S).dump"
+  tmp="$file.tmp"
 
-  # Lecture sur le réplica ; s'il est absent, repli sur le primaire.
-  # Écriture en .tmp puis renommage : un dump interrompu n'est jamais pris pour une vraie sauvegarde.
-  if dump "$PGHOST" || { echo "repli sur le primaire" >&2 && dump db; }; then
-    mv "$file.tmp" "$file"
-    echo "sauvegarde OK : $file ($(du -h "$file" | cut -f1))"
+  if dump "$PGHOST" || { echo "réplica indisponible, sauvegarde depuis db" >&2; dump db; }; then
+    mv "$tmp" "$file"
+    echo "sauvegarde OK : $file"
   else
-    rm -f "$file.tmp"
-    echo "sauvegarde ÉCHOUÉE" >&2
+    rm -f "$tmp"
+    echo "sauvegarde échouée" >&2
     return 1
   fi
 }
 
 rotate() {
-  # On ne garde que les BACKUP_KEEP plus récentes.
-  ls -1t /backups/*.dump 2>/dev/null | tail -n +"$((BACKUP_KEEP + 1))" | xargs -r rm -f
+  find "$dir" -name '*.dump' | sort -r | tail -n +"$((BACKUP_KEEP + 1))" | xargs -r rm -f
 }
 
-if [ "${1:-}" = "now" ]; then
+if [ "${1:-}" = now ]; then
   backup && rotate
   exit
 fi
 
+trap 'exit 0' TERM INT
+
 while :; do
   backup && rotate
-  sleep "$BACKUP_INTERVAL"
+  sleep "$BACKUP_INTERVAL" &
+  wait $!
 done

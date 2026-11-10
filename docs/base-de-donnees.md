@@ -6,7 +6,7 @@ Responsable : Luka — services `db`, `db-replica`, `backup` ; volumes `db-data`
 
 ## 1. Choix techniques
 
-### PostgreSQL 17 plutôt que MariaDB ou MongoDB
+### PostgreSQL 18 plutôt que MariaDB ou MongoDB
 
 Ce n'est pas « la meilleure base » dans l'absolu : c'est celle qui coche le mieux **nos** critères.
 
@@ -39,10 +39,23 @@ Ce n'est pas « la meilleure base » dans l'absolu : c'est celle qui coche le mi
 |---|---|---|
 | Conteneur `backup` séparé | Une responsabilité par conteneur. | Script lancé depuis l'hôte : pas reproductible. |
 | Lecture sur le **réplica** | Le dump ne charge pas le primaire qui sert l'appli. Repli sur le primaire si le réplica est absent. | Toujours sur le primaire. |
-| Même image `postgres:17-alpine` | `pg_dump` doit être de version ≥ au serveur ; aucune image de plus. | Image tierce : une dépendance de plus à justifier. |
+| Même image que la base | `pg_dump` doit être de version ≥ au serveur ; aucune image de plus. | Image tierce : une dépendance de plus à justifier. |
 | Dump logique `-Fc -Z zstd` | Cohérent, compressé, restaurable table par table. | Copier les fichiers du volume : incohérent si la base écrit pendant la copie. |
 | Boucle `sleep` | Simple à lire et à expliquer. | `cron` : un démon de plus ; pgBackRest : trop lourd ici. |
-| Volume nommé `backups` | Les sauvegardes survivent à la suppression des conteneurs. | Bind mount : dépend des chemins de l'hôte (Windows/Linux). |
+| Volume nommé `backups` | La consigne demande un volume ; les sauvegardes survivent à la suppression des conteneurs ; aucun problème de propriétaire de fichiers. | Bind mount `./backups` (le cours le classe pour les backups) : fichiers directement sur l'hôte, mais créés par l'UID 70 du conteneur, qui n'existe pas sur l'hôte, et comportement différent sous Windows et Linux. |
+
+### Sécurité : comme vu en cours
+
+| Choix | Pourquoi | Alternative écartée |
+|---|---|---|
+| Mots de passe en **secrets** (`secrets/*.txt` → `/run/secrets/<nom>`) | Le cours : un mot de passe en variable d'environnement est « très mauvaise idée », visible avec `docker inspect`. Vérifié : 0 occurrence dans `docker inspect` des 3 conteneurs. | Variables `POSTGRES_PASSWORD` dans le `.env`. |
+| `POSTGRES_PASSWORD_FILE` | Prévu par l'image officielle : elle lit le mot de passe dans le fichier. | Script maison. |
+| Réplica : fichier `.pgpass` (droits `600`) régénéré à chaque démarrage | Avec une variable, `pg_basebackup -R` recopie le mot de passe **en clair** dans la configuration du réplica. Avec un fichier, elle ne contient que son chemin. | `PGPASSWORD`. |
+| Scripts de sauvegarde : mot de passe lu dans le secret au lancement | Il ne vit que dans la mémoire du processus : ni dans la config du conteneur, ni sur le disque. | Variable d'environnement du conteneur. |
+| **Aucun conteneur en root** (`user: postgres`, UID 70) | Le cours range le root par défaut dans les pratiques dangereuses. Les volumes sont montés sur `/var/lib/postgresql`, qui appartient à `postgres` dans l'image : ils en héritent, donc pas besoin de root pour les préparer. | Démarrer en root puis rétrograder (ce que fait l'image par défaut). |
+| Sauvegardes en `600` (`umask 077`) | Un dump contient toute la base. | Fichiers lisibles par tous. |
+| Image fixée par empreinte `sha256` | Reproductibilité : exactement la même image à chaque installation (cours, p. 44). | Tag seul, qui peut pointer vers une autre image demain. |
+| Limites RAM / CPU / processus, rotation des logs | Un conteneur ne peut ni saturer l'hôte, ni remplir le disque de logs (cours, p. 70-71). | Aucune limite. |
 
 > **Le réplica n'est pas une sauvegarde.** Un `DELETE` est répliqué en quelques millisecondes. Le réplica protège d'une panne de machine ; la sauvegarde protège d'une erreur humaine.
 
@@ -61,10 +74,12 @@ Ce n'est pas « la meilleure base » dans l'absolu : c'est celle qui coche le mi
      db-data                           db-replica-data               backups
 ```
 
+**Avant le premier démarrage :** créer les deux fichiers de mots de passe (voir `secrets/README.md`). Sans eux, Compose refuse de démarrer.
+
 **Premier démarrage, dans l'ordre :**
 1. `db` : volume vide → Postgres s'initialise et joue `db/init/` : création de la table (`01-schema.sql`), du compte `replicator` et de son autorisation dans `pg_hba.conf` (`02-replication.sh`).
 2. `db` devient `healthy` (`pg_isready` en TCP).
-3. `db-replica` démarre : volume vide → `pg_basebackup -R -X stream` clone le primaire. `-R` crée `standby.signal` : Postgres démarre en **lecture seule** et suit le primaire.
+3. `db-replica` démarre : il écrit son fichier `.pgpass` depuis le secret ; volume vide → `pg_basebackup -R -X stream` clone le primaire. `-R` crée `standby.signal` : Postgres démarre en **lecture seule** et suit le primaire.
 4. `backup` démarre, fait une première sauvegarde, puis une toutes les `BACKUP_INTERVAL` secondes, en gardant les `BACKUP_KEEP` plus récentes.
 
 **Démarrages suivants :** les volumes sont remplis, aucun script d'init ni clonage n'est rejoué.
@@ -88,7 +103,10 @@ docker compose exec db psql -U helpdesk -c "SELECT usename, state FROM pg_stat_r
 docker compose exec backup sh /scripts/backup.sh now           # sauvegarde immédiate
 docker compose exec backup sh /scripts/restore.sh              # liste
 docker compose exec backup sh /scripts/restore.sh <fichier>    # restauration (écrase les données)
-docker compose cp backup:/backups ./backups-export             # copie sur la machine hôte
+docker compose cp backup:/var/lib/postgresql/backups ./backups-export   # copie sur la machine hôte
+
+# Vérifier qu'aucun conteneur ne tourne en root
+docker compose exec db id        # uid=70(postgres)
 ```
 
 ### Démo (≈ 1 min 30)
@@ -104,7 +122,7 @@ docker compose cp backup:/backups ./backups-export             # copie sur la ma
 
 | Pour | Information |
 |---|---|
-| Application — écritures | `postgresql://<POSTGRES_USER>:<POSTGRES_PASSWORD>@db:5432/<POSTGRES_DB>` |
+| Application — écritures | hôte `db`, port `5432`, utilisateur `POSTGRES_USER`, base `POSTGRES_DB`. Mot de passe : ajouter le secret `db_password` au service et le lire dans `/run/secrets/db_password`, plutôt qu'un mot de passe dans `DATABASE_URL`. |
 | Application — lectures qui tolèrent un léger retard (stats, rapports) | même URL avec l'hôte `db-replica` |
 | Compose | réseau `backend` ; `depends_on: db: { condition: service_healthy }` |
 
@@ -114,13 +132,19 @@ docker compose cp backup:/backups ./backups-export             # copie sur la ma
 
 | Problème | Cause | Solution |
 |---|---|---|
-| Réplica en redémarrage en boucle | Le dossier du volume est créé par Docker en `0755` ; Postgres refuse de démarrer si ses données ne sont pas en `0700`. | `chmod 700 "$PGDATA"` dans l'entrypoint, avant chaque démarrage. |
+| Réplica en redémarrage en boucle | En v17, les données étaient à la racine du volume, créée par Docker en `0755` ; Postgres exige `0700`. | Corrigé d'abord par un `chmod 700`. En v18, les données sont dans un sous-dossier créé par `pg_basebackup` lui-même en `0700` : le `chmod` est devenu inutile et a été retiré. |
+| `docker compose stop backup` : 10 s d'attente puis code 137 | Le script tourne en PID 1 : sans gestionnaire, le signal d'arrêt est ignoré, Docker attend 10 s puis tue le conteneur (SIGKILL). | `trap 'exit 0' TERM` et `sleep & wait` : arrêt en 0,2 s, code 0. |
 | Connexion de réplication refusée | La règle `host all all` de l'image ne couvre pas le mode réplication. | Ligne `host replication replicator all scram-sha-256` ajoutée dans `pg_hba.conf` à l'init. |
 | `db` déclaré sain avant d'être prêt | Pendant l'init, Postgres démarre un serveur temporaire qui n'écoute que sur son socket Unix. | `pg_isready -h 127.0.0.1` : test en TCP. |
 | Réplica « healthy » alors qu'il ne réplique plus | `pg_isready` dit seulement que Postgres répond. | Healthcheck sur `pg_stat_wal_receiver.status = streaming`. |
 | Réplica arrêté longtemps → impossible de reprendre | Le primaire recycle son journal ; le réplica ne retrouve plus les segments manquants. | `wal_keep_size=256MB` sur le primaire. |
 | Mot de passe avec une apostrophe → script d'init cassé | Mot de passe collé dans la requête SQL. | Variable psql `:'pw'`, échappée par psql. Testé avec `rep'li`. |
-| Stack lancée sans `.env` → mot de passe vide | Compose remplace une variable absente par du vide, avec un simple avertissement. | `${POSTGRES_PASSWORD:?copier .env.example en .env}` : Compose refuse de démarrer. |
+| Mots de passe visibles avec `docker inspect` | Ils étaient passés en variables d'environnement. | Secrets Compose (fichiers montés dans `/run/secrets/`). |
+| Mot de passe de réplication en clair sur le disque du réplica | `pg_basebackup -R` recopie dans `postgresql.auto.conf` le mot de passe reçu par variable. Vu en testant. | Connexion avec un fichier `.pgpass` : la config ne contient que `passfile=…`. |
+| `postgres` ne peut pas écrire dans le volume de sauvegarde | Un volume monté sur un chemin absent de l'image (`/backups`) appartient à root. | Monter sur `/var/lib/postgresql`, qui appartient à `postgres` dans l'image : le volume en hérite. |
+| Exemple du cours (v18 + volume sur `/var/lib/postgresql/data`) : le conteneur s'arrête | Depuis la v18, l'image range les données dans `/var/lib/postgresql/18/docker` et refuse l'ancien point de montage. | Volume monté sur `/var/lib/postgresql`. |
+| Mot de passe avec `:`, `'` ou `\`, ou fichier créé sous Windows (CRLF) | `:` et `\` sont des séparateurs du format `.pgpass` ; Windows ajoute `\r\n`. | Échappement dans le `.pgpass`, suppression de `\r\n` à la lecture. Testé avec `R:e'p\li` et un fichier CRLF. |
+| Tri des accents incorrect sous Alpine | La bibliothèque C d'Alpine (musl) trie octet par octet. | Collation ICU `fr-FR` à l'initialisation. |
 | Sauvegarde partielle prise pour une vraie | `pg_dump` interrompu laisse un fichier incomplet. | Écriture en `.tmp`, renommé seulement en cas de succès. |
 | Restauration sur une base existante | `pg_restore` échoue sur les tables déjà présentes ; un réplica refuse les écritures. | `--clean --if-exists --single-transaction`, toujours vers `db`. |
 | Changer le schéma sans effet | `db/init/` n'est joué que sur un volume vide. | En dev : `docker compose down -v`. En prod : un outil de migrations (§4). |
@@ -137,7 +161,9 @@ docker compose cp backup:/backups ./backups-export             # copie sur la ma
 - Réplication synchrone si aucune perte de données n'est tolérée.
 
 **Sécurité**
-- Mots de passe via secrets Docker (`POSTGRES_PASSWORD_FILE`) plutôt que variables visibles avec `docker inspect`.
+- Secrets chiffrés : en dehors de Swarm, un secret Compose est un simple fichier monté en lecture seule, non chiffré. Swarm ou un coffre-fort (Vault) les chiffrent.
+- Supprimer aussi les capacités Linux inutiles (`cap_drop: [ALL]` puis le strict nécessaire), comme dans la démo de hardening du cours.
+- Scanner les images (Trivy, Dockle) et le dépôt (Gitleaks) avant chaque livraison.
 - Utilisateur dédié à l'appli avec les seuls droits nécessaires, au lieu du superutilisateur.
 - Chiffrer les sauvegardes (`age`, `gpg`) avant de les copier ailleurs.
 

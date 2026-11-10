@@ -1,18 +1,23 @@
 #!/bin/sh
-# Restaure une sauvegarde dans la base primaire. ÉCRASE les données actuelles.
-#   sh /scripts/restore.sh                       liste les sauvegardes disponibles
-#   sh /scripts/restore.sh <fichier>.dump        restaure ce fichier
+# Usage : restore.sh             liste les sauvegardes
+#         restore.sh <fichier>   restaure dans db (écrase les données actuelles)
 set -eu
 
+dir=/var/lib/postgresql/backups
+
 if [ $# -eq 0 ]; then
-  ls -1t /backups/*.dump
+  find "$dir" -name '*.dump' | sort -r
   exit
 fi
 
-file="/backups/$(basename "$1")"
-[ -f "$file" ] || { echo "introuvable : $file" >&2; exit 1; }
+file="$dir/$(basename "$1")"
+if [ ! -f "$file" ]; then
+  echo "introuvable : $file" >&2
+  exit 1
+fi
 
-# Toujours vers le primaire : un réplica est en lecture seule.
-# --clean --if-exists : supprime puis recrée chaque objet ; --single-transaction : tout ou rien.
+PGPASSWORD="$(tr -d '\r\n' < /run/secrets/db_password)"
+export PGPASSWORD
+
 pg_restore -h db --clean --if-exists --no-owner --single-transaction -d "$PGDATABASE" "$file"
 echo "restauration OK : $file"
