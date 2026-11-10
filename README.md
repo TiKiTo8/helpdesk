@@ -16,7 +16,7 @@ Projet de conteneurisation B3 — groupe de 3, présentation de 15 min.
 | Reverse proxy qui facilite l'accès aux services (Traefik, Caddy, NGINX…) | Maxime | *à définir* |
 | `compose.yml` | TOUS | — |
 | Base de données avec un volume persistant | Luka | *à définir* |
-| Réplication master / slave de la base | Baptiste | — |
+| Réplication master / slave de la base | Luka | — |
 | Volume pour sauvegarder les fichiers de manière persistante (backups) | Luka | *à définir* |
 | Mailing et Monitoring | Baptiste | *à définir* |
 
