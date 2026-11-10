@@ -4,96 +4,467 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Helpdesk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --line:#e3e3e8; --accent:#0071e3; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#0b0b0d; --card:#17171a; --text:#f5f5f7; --muted:#98989f; --line:#2a2a2f; --accent:#2997ff; }
+  :root {
+    --steel: #eef1f4;
+    --paper: #ffffff;
+    --ink: #14181f;
+    --muted: #59616e;
+    --line: #d6dbe2;
+    --signal: #2448d8;
+    --signal-ink: #ffffff;
+    --open: #8a5300;
+    --open-bg: #fff1d6;
+    --done: #2a6b45;
+    --done-bg: #e2f1e7;
+    --danger: #b3261e;
+    --focus: #2448d8;
+    color-scheme: light;
   }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --steel: #0f1217;
+      --paper: #181c23;
+      --ink: #e9ecf1;
+      --muted: #9aa3b0;
+      --line: #2b313b;
+      --signal: #7f9bff;
+      --signal-ink: #0f1217;
+      --open: #f3c46b;
+      --open-bg: #3a2c10;
+      --done: #8fd3a8;
+      --done-bg: #183323;
+      --danger: #ff8a80;
+      --focus: #7f9bff;
+      color-scheme: dark;
+    }
+  }
+
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width:720px; margin:0 auto; padding:56px 16px 80px; }
-  h1 { font-size:40px; letter-spacing:-.02em; margin:0 0 4px; }
-  .meta { color:var(--muted); font-size:14px; margin:0 0 32px; font-variant-numeric:tabular-nums; }
-  form, li { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; }
-  form { display:grid; gap:12px; grid-template-columns:1fr 1fr; margin-bottom:32px; }
-  textarea, button { grid-column:1 / -1; }
-  input, textarea { width:100%; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:inherit; font:inherit; }
-  textarea { min-height:88px; resize:vertical; }
-  button { padding:12px 18px; border:0; border-radius:980px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
-  button.ghost { background:none; color:var(--accent); padding:0; font-weight:500; }
-  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  ul { list-style:none; padding:0; margin:0; display:grid; gap:12px; }
-  li header { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
-  li h2 { font-size:17px; margin:0; overflow-wrap:anywhere; }
-  li p { margin:6px 0 10px; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; }
-  li footer { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); }
-  .closed { opacity:.55; }
-  .badge { font-size:12px; padding:2px 10px; border-radius:980px; border:1px solid var(--line); white-space:nowrap; }
-  #error { color:#d70015; grid-column:1 / -1; margin:0; font-size:14px; }
-  #error:empty { display:none; }
-  @media (max-width:520px) { form { grid-template-columns:1fr; } h1 { font-size:32px; } }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--steel);
+    color: var(--ink);
+    font: 400 16px/1.5 "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  button, input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .page { max-width: 1120px; margin: 0 auto; padding: 40px 24px 64px; }
+
+  .top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 32px; }
+  .brand { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+  .summary { margin: 0; color: var(--muted); }
+  .summary strong { color: var(--ink); font-weight: 600; }
+
+  .layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 40px; align-items: start; }
+
+  /* Formulaire */
+  .compose { position: sticky; top: 24px; }
+  .compose h2 { margin: 0 0 4px; font-size: 28px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; }
+  .compose > p { margin: 0 0 24px; color: var(--muted); }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 14px; }
+  .field input, .field textarea {
+    width: 100%; padding: 11px 12px;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .field textarea { min-height: 128px; resize: vertical; }
+  .field input:focus-visible, .field textarea:focus-visible { outline-offset: 0; border-color: var(--focus); }
+  .field[data-invalid] input, .field[data-invalid] textarea { border-color: var(--danger); }
+  .field .hint { display: block; margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .field[data-invalid] .hint { color: var(--danger); }
+
+  .primary {
+    width: 100%; padding: 12px 16px; border: 0; border-radius: 8px;
+    background: var(--signal); color: var(--signal-ink);
+    font-weight: 600; cursor: pointer;
+  }
+  .primary:disabled { opacity: .6; cursor: progress; }
+  .form-error { margin: 12px 0 0; color: var(--danger); font-size: 14px; }
+  .form-error:empty { display: none; }
+
+  /* File */
+  .toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px; }
+  .filters { display: inline-flex; padding: 3px; gap: 2px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+  .filters button {
+    border: 0; background: none; padding: 7px 12px; border-radius: 7px; cursor: pointer;
+    color: var(--muted); font-weight: 500; white-space: nowrap;
+  }
+  .filters button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .filters .count { font-variant-numeric: tabular-nums; margin-left: 4px; opacity: .75; }
+  .search { flex: 1 1 220px; max-width: 320px; }
+  .search input { width: 100%; padding: 9px 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+
+  .queue { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+
+  /* Le ticket : une souche numérotée, séparée du corps par une perforation */
+  .ticket {
+    --notch: 9px;
+    display: grid; grid-template-columns: 104px minmax(0, 1fr);
+    background: var(--paper); border-radius: 10px;
+    -webkit-mask: radial-gradient(circle var(--notch) at 104px 0, #0000 98%, #000) top / 100% 51% no-repeat,
+                  radial-gradient(circle var(--notch) at 104px 100%, #0000 98%, #000) bottom / 100% 51% no-repeat;
+            mask: radial-gradient(circle var(--notch) at 104px 0, #0000 98%, #000) top / 100% 51% no-repeat,
+                  radial-gradient(circle var(--notch) at 104px 100%, #0000 98%, #000) bottom / 100% 51% no-repeat;
+  }
+  .stub {
+    position: relative; padding: 18px 16px;
+    display: flex; flex-direction: column; justify-content: space-between; gap: 12px;
+  }
+  .stub::after {
+    content: ""; position: absolute; top: 14px; bottom: 14px; right: 0;
+    border-right: 2px dashed var(--line);
+  }
+  .stub .no { font-size: 13px; color: var(--muted); }
+  .stub .num { font-size: 34px; line-height: 1; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .status {
+    align-self: flex-start; padding: 2px 8px; border-radius: 6px;
+    font-size: 13px; font-weight: 600;
+    background: var(--open-bg); color: var(--open);
+  }
+  .ticket.closed .status { background: var(--done-bg); color: var(--done); }
+  .ticket.closed .num, .ticket.closed h3 { color: var(--muted); }
+
+  .body { padding: 18px 20px; min-width: 0; }
+  .body h3 { margin: 0 0 4px; font-size: 18px; line-height: 1.3; font-weight: 600; overflow-wrap: anywhere; }
+  .body p { margin: 0 0 14px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 68ch; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 20px; align-items: center; font-size: 14px; color: var(--muted); }
+  .meta .who { color: var(--ink); overflow-wrap: anywhere; }
+  .resolve {
+    margin-left: auto; padding: 7px 12px; border-radius: 8px; cursor: pointer;
+    background: none; border: 1px solid var(--line); font-weight: 600; color: var(--ink);
+  }
+  .resolve:hover { border-color: var(--ink); }
+  .resolve:disabled { opacity: .6; cursor: progress; }
+
+  .ticket.fresh { animation: arrive 2s ease-out; }
+  @keyframes arrive { from { background: color-mix(in srgb, var(--signal) 22%, var(--paper)); } to { background: var(--paper); } }
+
+  .empty { padding: 48px 24px; text-align: center; color: var(--muted); border: 2px dashed var(--line); border-radius: 10px; }
+  .empty strong { display: block; color: var(--ink); font-size: 18px; margin-bottom: 4px; }
+  .empty button { margin-top: 16px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); cursor: pointer; font-weight: 600; }
+
+  .infra { margin-top: 24px; font-size: 13px; color: var(--muted); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    padding: 10px 16px; border-radius: 8px; background: var(--ink); color: var(--paper);
+    font-weight: 500; opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .toast.show { opacity: 1; }
+
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  @media (max-width: 860px) {
+    .page { padding: 24px 16px 48px; }
+    .layout { grid-template-columns: 1fr; gap: 32px; }
+    .compose { position: static; }
+    .search { max-width: none; }
+  }
+  @media (max-width: 480px) {
+    .ticket { grid-template-columns: 1fr; -webkit-mask: none; mask: none; }
+    .stub { flex-direction: row; align-items: center; padding: 14px 16px 0; }
+    .stub::after { display: none; }
+    .stub > div { display: flex; align-items: baseline; gap: 6px; }
+    .stub .num { font-size: 26px; }
+    .body { padding: 10px 16px 16px; }
+    .resolve { margin-left: 0; width: 100%; margin-top: 4px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ticket.fresh { animation: none; }
+    .toast { transition: none; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <h1>Helpdesk</h1>
-  <p class="meta" id="meta">Chargement...</p>
+<div class="page">
+  <header class="top">
+    <h1 class="brand">Helpdesk</h1>
+    <p class="summary" id="summary" aria-live="polite">Chargement des demandes...</p>
+  </header>
 
-  <form id="form">
-    <input name="title" placeholder="Titre" required minlength="3" maxlength="120" aria-label="Titre">
-    <input name="email" type="email" placeholder="Votre e-mail" required aria-label="E-mail">
-    <textarea name="description" placeholder="Décrivez le problème" required maxlength="2000" aria-label="Description"></textarea>
-    <p id="error" role="alert"></p>
-    <button>Créer le ticket</button>
-  </form>
+  <div class="layout">
+    <section class="compose" aria-labelledby="compose-title">
+      <h2 id="compose-title">Un problème ?</h2>
+      <p>Décrivez-le, le support vous répond par e&#8209;mail.</p>
 
-  <ul id="list"></ul>
-</main>
+      <form id="form" novalidate>
+        <div class="field" id="field-title">
+          <label for="title">Sujet</label>
+          <input id="title" name="title" maxlength="120" autocomplete="off" placeholder="Ex. : l'imprimante du 2ᵉ ne répond plus">
+          <span class="hint" id="hint-title">Entre 3 et 120 caractères.</span>
+        </div>
+        <div class="field" id="field-description">
+          <label for="description">Détails</label>
+          <textarea id="description" name="description" maxlength="2000" placeholder="Ce qui se passe, depuis quand, ce que vous avez déjà essayé."></textarea>
+          <span class="hint" id="hint-description">Plus c'est précis, plus c'est rapide.</span>
+        </div>
+        <div class="field" id="field-email">
+          <label for="email">Votre e-mail</label>
+          <input id="email" name="email" type="email" maxlength="254" autocomplete="email" placeholder="prenom.nom@entreprise.fr">
+          <span class="hint" id="hint-email">La confirmation arrivera ici.</span>
+        </div>
+        <button class="primary" id="submit">Envoyer la demande</button>
+        <p class="form-error" id="form-error" role="alert"></p>
+      </form>
+    </section>
+
+    <section aria-labelledby="queue-title">
+      <h2 id="queue-title" class="visually-hidden">Demandes</h2>
+      <div class="toolbar">
+        <div class="filters" role="group" aria-label="Filtrer les demandes">
+          <button type="button" data-filter="open" aria-pressed="true">Ouvertes<span class="count" id="count-open"></span></button>
+          <button type="button" data-filter="closed" aria-pressed="false">Résolues<span class="count" id="count-closed"></span></button>
+          <button type="button" data-filter="all" aria-pressed="false">Toutes</button>
+        </div>
+        <label class="search">
+          <span class="visually-hidden">Rechercher une demande</span>
+          <input id="search" type="search" placeholder="Rechercher un sujet ou un e-mail">
+        </label>
+      </div>
+
+      <ol class="queue" id="queue" aria-live="polite"></ol>
+      <p class="infra" id="infra"></p>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<template id="ticket-template">
+  <li class="ticket">
+    <div class="stub">
+      <div>
+        <div class="no">N°</div>
+        <div class="num"></div>
+      </div>
+      <span class="status"></span>
+    </div>
+    <div class="body">
+      <h3></h3>
+      <p></p>
+      <div class="meta">
+        <span class="who"></span>
+        <time></time>
+      </div>
+    </div>
+  </li>
+</template>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const el = (tag, text, cls) => {
-  const node = document.createElement(tag);
-  if (text != null) node.textContent = text;   // textContent pour ne jamais injecter de HTML
-  if (cls) node.className = cls;
-  return node;
-};
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-async function refresh() {
-  const [res, stats] = await Promise.all([fetch("/api/tickets"), fetch("/api/stats").then((r) => r.json())]);
-  const tickets = await res.json();
-  const { open = 0, closed = 0 } = stats.counts;
-  $("meta").textContent =
-    `${open} ouvert(s) · ${closed} fermé(s) · cache ${res.headers.get("X-Cache")} · stats lues sur ${stats.source}`;
+const state = { tickets: [], filter: "open", query: "", fresh: null, error: false };
 
-  $("list").replaceChildren(...tickets.map((t) => {
-    const li = el("li", null, t.status);
-    const header = el("header");
-    header.append(el("h2", `#${t.id} ${t.title}`), el("span", t.status === "open" ? "Ouvert" : "Fermé", "badge"));
-    const footer = el("footer");
-    footer.append(el("span", `${t.email} · ${t.created_at}`));
-    if (t.status === "open") {
-      const btn = el("button", "Fermer", "ghost");
-      btn.onclick = () => fetch(`/api/tickets/${t.id}/close`, { method: "POST" }).then(refresh);
-      footer.append(btn);
-    }
-    li.append(header, el("p", t.description), footer);
-    return li;
-  }));
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+  });
+  const data = await res.json().catch(() => null);
+  return { res, data };
 }
 
-$("form").onsubmit = async (e) => {
-  e.preventDefault();
-  const res = await fetch("/api/tickets", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(Object.fromEntries(new FormData(e.target))),
-  });
-  $("error").textContent = res.ok ? "" : "Ticket refusé : vérifiez les champs.";
-  if (res.ok) { e.target.reset(); refresh(); }
-};
+async function load() {
+  try {
+    const [list, stats] = await Promise.all([api("/api/tickets"), api("/api/stats").catch(() => null)]);
+    if (!list.res.ok) throw new Error(list.res.status);
+    state.tickets = list.data;
+    state.error = false;
+    renderInfra(list.res.headers.get("X-Cache"), stats && stats.res.ok ? stats.data.source : null);
+  } catch {
+    state.error = true;
+  }
+  render();
+}
 
-refresh().catch(() => { $("meta").textContent = "API injoignable."; });
+function render() {
+  const open = state.tickets.filter((t) => t.status === "open").length;
+  const closed = state.tickets.length - open;
+  $("count-open").textContent = open;
+  $("count-closed").textContent = closed;
+
+  if (state.error) {
+    $("summary").textContent = "Le service ne répond pas.";
+  } else {
+    $("summary").replaceChildren(
+      ...(open === 0
+        ? ["Aucune demande en attente."]
+        : [strong(open), open === 1 ? " demande en attente, " : " demandes en attente, ", strong(closed), closed === 1 ? " résolue." : " résolues."]),
+    );
+  }
+
+  const q = state.query.trim().toLowerCase();
+  const visible = state.tickets.filter((t) =>
+    (state.filter === "all" || t.status === state.filter) &&
+    (!q || t.title.toLowerCase().includes(q) || t.email.toLowerCase().includes(q)),
+  );
+
+  if (state.error) return $("queue").replaceChildren(empty("Le service ne répond pas", "Les demandes s'afficheront dès qu'il sera de retour.", "Réessayer", load));
+  if (visible.length === 0) {
+    if (q) return $("queue").replaceChildren(empty("Aucun résultat", `Aucune demande ne correspond à « ${state.query.trim()} ».`));
+    if (state.filter === "open") return $("queue").replaceChildren(empty("Tout est traité", "Aucune demande en attente pour le moment."));
+    return $("queue").replaceChildren(empty("Rien ici", state.filter === "closed" ? "Aucune demande résolue pour l'instant." : "Aucune demande pour l'instant."));
+  }
+  $("queue").replaceChildren(...visible.map(ticket));
+}
+
+function ticket(t) {
+  const node = $("ticket-template").content.firstElementChild.cloneNode(true);
+  const closed = t.status === "closed";
+  node.classList.toggle("closed", closed);
+  node.classList.toggle("fresh", t.id === state.fresh);
+  node.querySelector(".num").textContent = t.id;
+  node.querySelector(".status").textContent = closed ? "Résolue" : "Ouverte";
+  node.querySelector("h3").textContent = t.title;
+  node.querySelector(".body p").textContent = t.description;
+  node.querySelector(".who").textContent = t.email;
+  node.querySelector("time").textContent = t.created_at.replace(" ", " à ");
+
+  if (!closed) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "resolve";
+    button.textContent = "Marquer comme résolue";
+    button.addEventListener("click", () => resolve(t, button));
+    node.querySelector(".meta").append(button);
+  }
+  return node;
+}
+
+async function resolve(t, button) {
+  button.disabled = true;
+  const { res } = await api(`/api/tickets/${t.id}/close`, { method: "POST" }).catch(() => ({ res: { ok: false } }));
+  if (!res.ok) {
+    button.disabled = false;
+    return toast(`La demande n° ${t.id} n'a pas pu être résolue. Réessayez.`);
+  }
+  toast(`Demande n° ${t.id} résolue.`);
+  load();
+}
+
+function validate(values) {
+  const errors = {};
+  if (values.title.length < 3) errors.title = "Le sujet doit faire au moins 3 caractères.";
+  if (!values.description) errors.description = "Ajoutez quelques détails sur le problème.";
+  if (!EMAIL.test(values.email)) errors.email = "Cette adresse e-mail n'est pas valide.";
+  return errors;
+}
+
+const HINTS = {};
+for (const name of ["title", "description", "email"]) HINTS[name] = $(`hint-${name}`).textContent;
+
+function showErrors(errors) {
+  for (const name of Object.keys(HINTS)) {
+    const field = $(`field-${name}`);
+    field.toggleAttribute("data-invalid", Boolean(errors[name]));
+    $(`hint-${name}`).textContent = errors[name] || HINTS[name];
+    $(name).setAttribute("aria-invalid", errors[name] ? "true" : "false");
+  }
+  const first = Object.keys(HINTS).find((name) => errors[name]);
+  if (first) $(first).focus();
+}
+
+$("form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("form-error").textContent = "";
+  const values = {
+    title: $("title").value.replace(/\s+/g, " ").trim(),
+    description: $("description").value.trim(),
+    email: $("email").value.trim(),
+  };
+  const errors = validate(values);
+  showErrors(errors);
+  if (Object.keys(errors).length) return;
+
+  $("submit").disabled = true;
+  try {
+    const { res, data } = await api("/api/tickets", { method: "POST", body: JSON.stringify(values) });
+    if (res.status === 422 && data && Array.isArray(data.detail)) {
+      const fromServer = {};
+      for (const d of data.detail) fromServer[d.loc.at(-1)] = "Valeur refusée, vérifiez ce champ.";
+      showErrors(fromServer);
+      return;
+    }
+    if (!res.ok) throw new Error(res.status);
+    $("title").value = "";
+    $("description").value = "";
+    state.fresh = data.id;
+    state.filter = "open";
+    syncFilters();
+    toast(`Demande n° ${data.id} envoyée. Une confirmation part à ${data.email}.`);
+    await load();
+  } catch {
+    $("form-error").textContent = "La demande n'a pas été envoyée : le service ne répond pas. Réessayez dans un instant.";
+  } finally {
+    $("submit").disabled = false;
+  }
+});
+
+document.querySelectorAll(".filters button").forEach((button) =>
+  button.addEventListener("click", () => {
+    state.filter = button.dataset.filter;
+    syncFilters();
+    render();
+  }),
+);
+
+function syncFilters() {
+  document.querySelectorAll(".filters button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.filter === state.filter)));
+}
+
+$("search").addEventListener("input", (event) => {
+  state.query = event.target.value;
+  render();
+});
+
+function renderInfra(cache, source) {
+  const parts = [];
+  if (cache) parts.push(cache === "HIT" ? "Liste servie depuis le cache Redis." : "Liste lue dans la base.");
+  if (source) parts.push(source === "replica" ? "Compteurs lus sur le réplica." : "Compteurs lus sur la base principale.");
+  $("infra").textContent = parts.join(" ");
+}
+
+function strong(text) {
+  const node = document.createElement("strong");
+  node.textContent = text;
+  return node;
+}
+
+function empty(title, text, action, onAction) {
+  const li = document.createElement("li");
+  li.className = "empty";
+  li.append(strong(title), text);
+  if (action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = action;
+    button.addEventListener("click", onAction);
+    li.append(document.createElement("br"), button);
+  }
+  return li;
+}
+
+let toastTimer;
+function toast(text) {
+  $("toast").textContent = text;
+  $("toast").classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $("toast").classList.remove("show"), 3500);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") load();
+});
+setInterval(() => document.visibilityState === "visible" && load(), 20000);
+
+load();
 </script>
 </body>
 </html>
