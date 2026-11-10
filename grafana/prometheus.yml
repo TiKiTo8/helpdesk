@@ -1,0 +1,21 @@
+
+apiVersion: 1
+
+
+datasources:
+  # nom affiché dans Grafana
+  - name: Prometheus
+    # type de source
+    type: prometheus
+    # identifiant fixe : les dashboards s'y réfèrent (ne pas changer)
+    uid: prometheus
+    # organisation
+    orgId: 1
+    # accès via le serveur Grafana (proxy) et non depuis le navigateur
+    access: proxy
+    # adresse de Prometheus dans le réseau Docker (nom du service)
+    url: http://prometheus:9090
+    # source utilisée par défaut
+    isDefault: true
+    # empêche la modification depuis l'interface
+    editable: false
