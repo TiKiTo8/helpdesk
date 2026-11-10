@@ -19,7 +19,7 @@ services:
   # Reverse proxy et front (Maxime)
 
   traefik:
-    image: traefik:v3.6
+    image: traefik:v3.6@sha256:31267173a15b4944e797a76ffd9c419707c8d8b32fe5b610f80cd0cfa05f372d
     restart: unless-stopped
     user: "65534:65534"
     read_only: true
