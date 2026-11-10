@@ -7,3 +7,6 @@ providers:
     filename: /etc/traefik/dynamic.yml
 
 ping: {}
+
+metrics:
+  prometheus: {}
