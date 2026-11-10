@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Helpdesk</title>
+<style>
+  :root { --bg:#f5f5f7; --card:#fff; --text:#1d1d1f; --muted:#6e6e73; --line:#e3e3e8; --accent:#0071e3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0b0b0d; --card:#17171a; --text:#f5f5f7; --muted:#98989f; --line:#2a2a2f; --accent:#2997ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:56px 16px 80px; }
+  h1 { font-size:40px; letter-spacing:-.02em; margin:0 0 4px; }
+  .meta { color:var(--muted); font-size:14px; margin:0 0 32px; font-variant-numeric:tabular-nums; }
+  form, li { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; }
+  form { display:grid; gap:12px; grid-template-columns:1fr 1fr; margin-bottom:32px; }
+  textarea, button { grid-column:1 / -1; }
+  input, textarea { width:100%; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:inherit; font:inherit; }
+  textarea { min-height:88px; resize:vertical; }
+  button { padding:12px 18px; border:0; border-radius:980px; background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button.ghost { background:none; color:var(--accent); padding:0; font-weight:500; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  ul { list-style:none; padding:0; margin:0; display:grid; gap:12px; }
+  li header { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
+  li h2 { font-size:17px; margin:0; overflow-wrap:anywhere; }
+  li p { margin:6px 0 10px; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere; }
+  li footer { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); }
+  .closed { opacity:.55; }
+  .badge { font-size:12px; padding:2px 10px; border-radius:980px; border:1px solid var(--line); white-space:nowrap; }
+  #error { color:#d70015; grid-column:1 / -1; margin:0; font-size:14px; }
+  #error:empty { display:none; }
+  @media (max-width:520px) { form { grid-template-columns:1fr; } h1 { font-size:32px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Helpdesk</h1>
+  <p class="meta" id="meta">Chargement…</p>
+
+  <form id="form">
+    <input name="title" placeholder="Titre" required minlength="3" maxlength="120" aria-label="Titre">
+    <input name="email" type="email" placeholder="Votre e-mail" required aria-label="E-mail">
+    <textarea name="description" placeholder="Décrivez le problème" required maxlength="2000" aria-label="Description"></textarea>
+    <p id="error" role="alert"></p>
+    <button>Créer le ticket</button>
+  </form>
+
+  <ul id="list"></ul>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, text, cls) => {
+  const node = document.createElement(tag);
+  if (text != null) node.textContent = text;   // textContent : jamais d'HTML injecté
+  if (cls) node.className = cls;
+  return node;
+};
+
+async function refresh() {
+  const [res, stats] = await Promise.all([fetch("/api/tickets"), fetch("/api/stats").then((r) => r.json())]);
+  const tickets = await res.json();
+  const { open = 0, closed = 0 } = stats.counts;
+  $("meta").textContent =
+    `${open} ouvert(s) · ${closed} fermé(s) — cache ${res.headers.get("X-Cache")} · stats lues sur ${stats.source}`;
+
+  $("list").replaceChildren(...tickets.map((t) => {
+    const li = el("li", null, t.status);
+    const header = el("header");
+    header.append(el("h2", `#${t.id} ${t.title}`), el("span", t.status === "open" ? "Ouvert" : "Fermé", "badge"));
+    const footer = el("footer");
+    footer.append(el("span", `${t.email} · ${t.created_at}`));
+    if (t.status === "open") {
+      const btn = el("button", "Fermer", "ghost");
+      btn.onclick = () => fetch(`/api/tickets/${t.id}/close`, { method: "POST" }).then(refresh);
+      footer.append(btn);
+    }
+    li.append(header, el("p", t.description), footer);
+    return li;
+  }));
+}
+
+$("form").onsubmit = async (e) => {
+  e.preventDefault();
+  const res = await fetch("/api/tickets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(Object.fromEntries(new FormData(e.target))),
+  });
+  $("error").textContent = res.ok ? "" : "Ticket refusé : vérifiez les champs.";
+  if (res.ok) { e.target.reset(); refresh(); }
+};
+
+refresh().catch(() => { $("meta").textContent = "API injoignable."; });
+</script>
+</body>
+</html>
