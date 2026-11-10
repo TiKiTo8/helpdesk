@@ -127,7 +127,7 @@ L'application se connecte à l'hôte `db`, port 5432, avec l'utilisateur `app`. 
 - **Restaurer à la seconde près** en archivant le journal (pgBackRest), au lieu de perdre jusqu'à une heure de données.
 - **Chiffrer les secrets et les sauvegardes** : hors Swarm, un secret Compose est un simple fichier, pas chiffré.
 - **Superviser la base** avec `postgres-exporter` et des alertes : retard de réplication, sauvegarde trop ancienne.
-- **Un outil de migrations** (Alembic, Flyway…) pour faire évoluer le schéma sans supprimer les données.
+- **Un outil de migrations** (Alembic, Flyway, etc.) pour faire évoluer le schéma sans supprimer les données.
 
 ## Comment optimiser
 

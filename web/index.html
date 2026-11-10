@@ -37,7 +37,7 @@
 <body>
 <main>
   <h1>Helpdesk</h1>
-  <p class="meta" id="meta">Chargement…</p>
+  <p class="meta" id="meta">Chargement...</p>
 
   <form id="form">
     <input name="title" placeholder="Titre" required minlength="3" maxlength="120" aria-label="Titre">
@@ -54,7 +54,7 @@
 const $ = (id) => document.getElementById(id);
 const el = (tag, text, cls) => {
   const node = document.createElement(tag);
-  if (text != null) node.textContent = text;   // textContent : jamais d'HTML injecté
+  if (text != null) node.textContent = text;   // textContent pour ne jamais injecter de HTML
   if (cls) node.className = cls;
   return node;
 };
@@ -64,7 +64,7 @@ async function refresh() {
   const tickets = await res.json();
   const { open = 0, closed = 0 } = stats.counts;
   $("meta").textContent =
-    `${open} ouvert(s) · ${closed} fermé(s) — cache ${res.headers.get("X-Cache")} · stats lues sur ${stats.source}`;
+    `${open} ouvert(s) · ${closed} fermé(s) · cache ${res.headers.get("X-Cache")} · stats lues sur ${stats.source}`;
 
   $("list").replaceChildren(...tickets.map((t) => {
     const li = el("li", null, t.status);

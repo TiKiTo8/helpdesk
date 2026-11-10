@@ -1,52 +1,36 @@
 # Helpdesk
 
-Projet de conteneurisation B3 — groupe de 3, présentation de 15 min.
+Projet de conteneurisation en B3, à trois. Une application de tickets de support et toute l'infrastructure qui va avec, lancée avec Docker Compose.
 
-**Le projet :** une application de helpdesk (tickets de support) et son infrastructure web conteneurisée.
+## Qui fait quoi
 
----
-
-## Consignes et répartition
-
-| Élément demandé | Responsable | Technologie choisie |
+| Ce qui est demandé | Qui s'en occupe | Avec quoi |
 |---|---|---|
-| Application (IA autorisée) | TOUS | *à définir* |
-| `Dockerfile` pour le build de l'application | TOUS | — |
-| Bind mounts pour partager le code / la configuration de l'application | Maxime | — |
-| Reverse proxy qui facilite l'accès aux services (Traefik, Caddy, NGINX…) | Maxime | *à définir* |
-| `compose.yml` | TOUS | — |
-| Base de données avec un volume persistant | Luka | PostgreSQL 18 |
-| Réplication master / slave de la base | Luka | Réplication en streaming PostgreSQL |
-| Volume pour sauvegarder les fichiers de manière persistante (backups) | Luka | `pg_dump` périodique dans un volume dédié |
-| Mailing et Monitoring | Baptiste | *à définir* |
+| L'application | Tout le monde | à définir |
+| Le Dockerfile de l'application | Tout le monde | |
+| Les bind mounts pour le code et la config | Maxime | |
+| Le reverse proxy | Maxime | à définir |
+| Le `compose.yml` | Tout le monde | |
+| La base de données avec un volume persistant | Luka | PostgreSQL 18 |
+| La réplication master / slave | Luka | réplication en streaming de PostgreSQL |
+| Le volume de sauvegardes | Luka | `pg_dump` toutes les heures dans un volume |
+| Le mailing et le monitoring | Baptiste | à définir |
 
-| Membre | Nom |
+## Ce qui sera noté
+
+| Critère | Qui vérifie |
 |---|---|
-| Membre 1 | |
-| Membre 2 | |
-| Membre 3 | |
+| Ça marche en partant de zéro | tout le monde, Maxime fait le test final |
+| Les bonnes pratiques | chacun sur sa partie |
+| Les healthchecks | chacun sur ses services |
+| La persistance des données | Luka |
+| Le reverse proxy (tous les services accessibles par lui) | Maxime |
+| La présentation (15 min max) | tout le monde |
+| La cohérence avec le besoin | tout le monde |
+| Le partage des tâches | tout le monde |
 
----
+## À savoir expliquer
 
-## Critères de notation
+Chacun doit pouvoir expliquer sa partie : comment elle marche, pourquoi on a fait ces choix et comment on pourrait l'améliorer.
 
-| Critère | Responsable |
-|---|---|
-| Fonctionnel depuis zéro (reproductible) | Tous — vérifié par le Membre 1 |
-| Bonnes pratiques | Chacun sur sa partie |
-| Robustesse (healthchecks) | Chacun sur ses services |
-| Persistance | Membre 3 |
-| Proxy bien configuré (services accessibles via le reverse proxy) | Membre 1 |
-| Clarté de la présentation / respect des 15 min | Tous |
-| Cohérence (répond au besoin) | Tous |
-| Partage des tâches | Tous |
-
----
-
-## Pour la soutenance
-
-Chaque membre doit être capable d'expliquer sur sa partie :
-
-- comment ça fonctionne ;
-- pourquoi ces choix ;
-- comment optimiser le code ou la configuration.
+La partie base de données est détaillée dans [docs/base-de-donnees.md](docs/base-de-donnees.md).
