@@ -1,0 +1,22 @@
+http:
+  routers:
+    site:
+      rule: "Host(`helpdesk.localhost`)"
+      service: web
+    api:
+      rule: "Host(`helpdesk.localhost`) && PathPrefix(`/api`)"
+      service: api
+
+    dashboard:
+      rule: "Host(`traefik.localhost`)"
+      service: api@internal
+
+  services:
+    web:
+      loadBalancer:
+        servers:
+          - url: "http://web:80"
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://api:8000"

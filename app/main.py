@@ -1,8 +1,11 @@
-"""API Helpdesk : tickets de support.
+"""API du helpdesk.
 
-Dépendances externes (toutes configurées par variables d'environnement) :
-  DATABASE_URL  obligatoire  PostgreSQL (écritures + lectures)
-  REPLICA_URL   optionnel    réplica PostgreSQL pour /api/stats (sinon : primaire)
+Tout se configure avec des variables d'environnement :
+  DB_HOST           base principale (écritures et lectures), "db" par défaut
+  DB_REPLICA_HOST   optionnel, réplica pour /api/stats (sinon : base principale)
+  DB_NAME           "helpdesk" par défaut
+  DB_USER           "app" par défaut
+  DB_PASSWORD_FILE  fichier secret du mot de passe, "/run/secrets/app_password" par défaut
   REDIS_URL     optionnel    cache de la liste des tickets (sinon : pas de cache)
   SMTP_HOST     optionnel    serveur mail (sinon : aucun mail envoyé)
   SMTP_PORT     optionnel    1025 par défaut
@@ -22,32 +25,50 @@ from pydantic import BaseModel, Field
 
 try:
     import redis
-except ImportError:  # redis n'est qu'un accélérateur
+except ImportError:  # redis est optionnel
     redis = None
 
 CACHE_KEY = "tickets"
 CACHE_TTL = 30  # secondes
 COLUMNS = "id, title, description, email, status, to_char(created_at, 'DD/MM/YYYY HH24:MI') AS created_at"
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-REPLICA_URL = os.environ.get("REPLICA_URL")
+DB_HOST = os.environ.get("DB_HOST", "db")
+DB_REPLICA_HOST = os.environ.get("DB_REPLICA_HOST")
+DB_NAME = os.environ.get("DB_NAME", "helpdesk")
+DB_USER = os.environ.get("DB_USER", "app")
+DB_PASSWORD_FILE = os.environ.get("DB_PASSWORD_FILE", "/run/secrets/app_password")
 REDIS_URL = os.environ.get("REDIS_URL")
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "1025"))
 
-primary = ConnectionPool(DATABASE_URL, kwargs={"row_factory": dict_row}, open=False)
-replica = (
-    ConnectionPool(REPLICA_URL, kwargs={"row_factory": dict_row}, timeout=2, open=False)
-    if REPLICA_URL
-    else None
-)
+# Le mot de passe est lu dans le secret, il n'apparaît pas dans l'environnement du conteneur.
+with open(DB_PASSWORD_FILE, encoding="utf-8") as f:
+    DB_PASSWORD = f.read().rstrip("\r\n")
+
+
+def db_pool(host: str, **options) -> ConnectionPool:
+    return ConnectionPool(
+        kwargs={
+            "host": host,
+            "dbname": DB_NAME,
+            "user": DB_USER,
+            "password": DB_PASSWORD,
+            "row_factory": dict_row,
+        },
+        open=False,
+        **options,
+    )
+
+
+primary = db_pool(DB_HOST)
+replica = db_pool(DB_REPLICA_HOST, timeout=2) if DB_REPLICA_HOST else None
 cache = (
     redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=1)
     if REDIS_URL and redis
     else None
 )
 
-# Métriques Prometheus (exposées sur /metrics)
+# Métriques lues par Prometheus sur /metrics
 TICKETS_CREATED = Counter("helpdesk_tickets_created_total", "Tickets créés")
 TICKETS_CLOSED = Counter("helpdesk_tickets_closed_total", "Tickets fermés")
 CACHE_REQUESTS = Counter("helpdesk_cache_requests_total", "Lectures de la liste", ["result"])
@@ -67,7 +88,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Helpdesk", lifespan=lifespan)
-app.mount("/metrics", make_asgi_app())  # à scraper en interne, ne pas router vers l'extérieur
+app.mount("/metrics", make_asgi_app())  # lu par Prometheus en interne, pas exposé par le proxy
 
 
 class TicketIn(BaseModel):
@@ -76,7 +97,7 @@ class TicketIn(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
 
 
-# Le cache est un accélérateur, pas une dépendance : si Redis tombe, on lit la base.
+# Si Redis ne répond pas, on lit directement la base.
 def cache_get() -> list | None:
     if not cache:
         return None
@@ -110,7 +131,7 @@ def send_mail(ticket: dict) -> None:
         msg = EmailMessage()
         msg["From"] = "helpdesk@helpdesk.localhost"
         msg["To"] = ticket["email"]
-        title = " ".join(ticket["title"].split())  # pas de retour à la ligne dans un en-tête
+        title = " ".join(ticket["title"].split())  # un retour à la ligne casserait l'en-tête du mail
         msg["Subject"] = f"Ticket #{ticket['id']} créé : {title}"
         msg.set_content(f"Votre demande a bien été enregistrée.\n\n{ticket['description']}")
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=5) as smtp:
@@ -149,7 +170,7 @@ def create_ticket(ticket: TicketIn, background: BackgroundTasks):
         ).fetchone()
     cache_invalidate()
     TICKETS_CREATED.inc()
-    background.add_task(send_mail, row)  # après la réponse : un SMTP lent ne ralentit pas l'utilisateur
+    background.add_task(send_mail, row)  # envoyé après la réponse, l'utilisateur n'attend pas le mail
     return row
 
 
@@ -168,8 +189,8 @@ def close_ticket(ticket_id: int):
 
 @app.get("/api/stats")
 def stats():
-    # Lecture de reporting : tolère quelques ms de retard, donc servie par le réplica s'il existe.
-    # Réplica absent ou indisponible -> repli sur le primaire.
+    # Les stats peuvent avoir un peu de retard, on les lit donc sur le réplica.
+    # S'il ne répond pas, on passe par la base principale.
     query = "SELECT status, count(*) AS total FROM tickets GROUP BY status"
     source = "primary"
     rows = None
