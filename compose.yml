@@ -42,6 +42,7 @@ services:
 
   web:
     build: ./web
+    image: helpdesk-web:1.0
     restart: unless-stopped
     user: "101:101"
     read_only: true
@@ -69,6 +70,7 @@ services:
     image: *postgres-image
     user: postgres
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
     command: ["postgres", "-c", "wal_keep_size=256MB"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-helpdesk}
@@ -100,6 +102,7 @@ services:
     image: *postgres-image
     user: postgres
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
     entrypoint: ["/bin/sh", "/scripts/replica-entrypoint.sh"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-helpdesk}
@@ -128,6 +131,7 @@ services:
     image: *postgres-image
     user: postgres
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
     entrypoint: ["/bin/sh", "/scripts/backup.sh"]
     environment:
       PGHOST: db-replica
@@ -163,7 +167,9 @@ services:
 
   api:
     build: ./app
+    image: helpdesk-api:1.0
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
     environment:
       DB_HOST: db
       DB_REPLICA_HOST: db-replica
