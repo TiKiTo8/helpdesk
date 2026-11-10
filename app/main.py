@@ -13,6 +13,7 @@ Tout se configure avec des variables d'environnement :
 import json
 import os
 import smtplib
+import time
 from contextlib import asynccontextmanager
 from email.message import EmailMessage
 
@@ -40,6 +41,7 @@ DB_PASSWORD_FILE = os.environ.get("DB_PASSWORD_FILE", "/run/secrets/app_password
 REDIS_URL = os.environ.get("REDIS_URL")
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "1025"))
+BACKUP_INTERVAL = int(os.environ.get("BACKUP_INTERVAL", "3600"))
 
 # Le mot de passe est lu dans le secret, il n'apparaît pas dans l'environnement du conteneur.
 with open(DB_PASSWORD_FILE, encoding="utf-8") as f:
@@ -56,11 +58,12 @@ def db_pool(host: str, **options) -> ConnectionPool:
             "row_factory": dict_row,
         },
         open=False,
+        check=ConnectionPool.check_connection,  # remplace les connexions mortes après un redémarrage de la base
         **options,
     )
 
 
-primary = db_pool(DB_HOST)
+primary = db_pool(DB_HOST, timeout=5)
 replica = db_pool(DB_REPLICA_HOST, timeout=2) if DB_REPLICA_HOST else None
 cache = (
     redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=1)
@@ -204,3 +207,86 @@ def stats():
         with primary.connection() as conn:
             rows, source = conn.execute(query).fetchall(), "primary"
     return {"source": source, "counts": {r["status"]: r["total"] for r in rows}}
+
+
+def probe(pool: ConnectionPool, query: str) -> tuple[dict | None, float | None]:
+    """Renvoie la ligne et le temps de réponse en ms, ou (None, None) si la base ne répond pas."""
+    start = time.perf_counter()
+    try:
+        with pool.connection() as conn:
+            row = conn.execute(query).fetchone()
+    except psycopg.Error:
+        return None, None
+    return row, round((time.perf_counter() - start) * 1000, 1)
+
+
+def lsn_to_int(lsn: str) -> int:
+    """Position dans le journal Postgres ("16/B374D848") convertie en nombre d'octets."""
+    high, low = lsn.split("/")
+    return (int(high, 16) << 32) + int(low, 16)
+
+
+def primary_status() -> tuple[dict, str | None]:
+    row, ms = probe(
+        primary,
+        "SELECT pg_current_wal_lsn()::text AS lsn, current_setting('server_version') AS version,"
+        " (SELECT count(*) FROM tickets) AS tickets",
+    )
+    if not row:
+        return {"ok": False}, None
+    return {"ok": True, "latency_ms": ms, "version": row["version"], "tickets": row["tickets"]}, row["lsn"]
+
+
+def replica_status(primary_lsn: str | None) -> dict:
+    if not replica:
+        return {"configured": False, "ok": False}
+    row, ms = probe(
+        replica,
+        "SELECT pg_last_wal_replay_lsn()::text AS lsn, pg_is_in_recovery() AS read_only,"
+        " (SELECT count(*) FROM tickets) AS tickets",
+    )
+    if not row:
+        return {"configured": True, "ok": False}
+    lag = max(lsn_to_int(primary_lsn) - lsn_to_int(row["lsn"]), 0) if primary_lsn else None
+    return {
+        "configured": True,
+        "ok": True,
+        "latency_ms": ms,
+        "read_only": row["read_only"],
+        "tickets": row["tickets"],
+        "lag_bytes": lag,
+    }
+
+
+def cache_status() -> dict:
+    if not cache:
+        return {"configured": False, "ok": False}
+    start = time.perf_counter()
+    try:
+        cache.ping()
+    except redis.RedisError:
+        return {"configured": True, "ok": False}
+    return {"configured": True, "ok": True, "latency_ms": round((time.perf_counter() - start) * 1000, 1)}
+
+
+def last_backup() -> dict | None:
+    row, _ = probe(
+        primary,
+        "SELECT to_char(created_at, 'DD/MM/YYYY HH24:MI') AS at, extract(epoch FROM now() - created_at)::int AS age_s,"
+        " size_bytes, source, kept FROM backup_log ORDER BY id DESC LIMIT 1",
+    )
+    if not row:
+        return None
+    return row | {"ok": row["age_s"] < 2 * BACKUP_INTERVAL}
+
+
+@app.get("/api/infra")
+def infra():
+    primary_state, primary_lsn = primary_status()
+    return {
+        "primary": primary_state,
+        "replica": replica_status(primary_lsn),
+        "cache": cache_status(),
+        "backup": last_backup(),
+        "backup_interval_s": BACKUP_INTERVAL,
+    }

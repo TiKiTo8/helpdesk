@@ -101,6 +101,14 @@ Le service `api` est branché sur la base. Il se connecte à `db` avec l'utilisa
 
 Le service `api` est sur le réseau `backend` et attend que `db` soit sain avant de démarrer. Pour qu'il soit accessible depuis le navigateur, il faudra l'ajouter aussi au réseau du reverse proxy.
 
+## La page Infrastructure
+
+http://helpdesk.localhost/infrastructure affiche l'état de la base, du réplica et des sauvegardes, mis à jour toutes les 3 secondes : nombre de tickets de chaque côté, retard de réplication en octets, temps de réponse, date de la dernière sauvegarde.
+
+Les données viennent de `/api/infra`. L'API n'a pas accès au volume des sauvegardes, donc `backup` écrit chaque sauvegarde dans la table `backup_log`, que le compte `app` peut lire mais pas modifier.
+
+Pour la démo : arrêter le réplica (`docker compose stop db-replica`), la liaison passe au rouge ; le relancer, il rattrape son retard ; lancer une sauvegarde (`docker compose exec backup sh /scripts/backup.sh now`), la carte se met à jour.
+
 ## Les difficultés rencontrées
 
 **L'exemple du cours ne marche plus en version 18.** Il monte le volume sur `/var/lib/postgresql/data`. Depuis la v18, l'image range ses données ailleurs et s'arrête avec une erreur. Il faut monter le volume sur `/var/lib/postgresql`.
@@ -118,6 +126,8 @@ Le service `api` est sur le réseau `backend` et attend que `db` soit sain avant
 **Le réplica annoncé sain alors qu'il ne répliquait plus.** `pg_isready` dit seulement si Postgres répond. On vérifie maintenant l'état de la réplication elle-même.
 
 **Les mots de passe avec des caractères spéciaux.** Une apostrophe cassait le script de création du compte, et `:` casse le format `.pgpass`. Les deux sont maintenant échappés, et les retours à la ligne ajoutés par Windows sont retirés.
+
+**La première requête échouait après un redémarrage de la base.** L'API réutilisait des connexions coupées par le redémarrage. Le pool vérifie maintenant chaque connexion avant de s'en servir.
 
 **Les scripts cassés sous Windows.** Git convertit parfois les fins de ligne. Le fichier `.gitattributes` force le format Linux pour les `.sh`.
 

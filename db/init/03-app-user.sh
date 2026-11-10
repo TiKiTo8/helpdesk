@@ -15,4 +15,7 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app;
 -- Mêmes droits sur les tables créées plus tard
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE ON TABLES TO app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO app;
+
+-- Écrit par le service backup, l'appli ne fait que le lire
+REVOKE INSERT, UPDATE ON backup_log FROM app;
 SQL
