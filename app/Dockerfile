@@ -3,7 +3,7 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Dépendances avant le code : la couche pip reste en cache tant que requirements.txt ne change pas.
+# requirements.txt d'abord : tant qu'il ne change pas, Docker réutilise la couche pip déjà construite.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
