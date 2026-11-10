@@ -20,12 +20,27 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./grafana/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./grafana/helpdesk.json:/var/lib/grafana/dashboards/helpdesk.json:ro
     depends_on:
       prometheus:
         condition: service_healthy
     networks: [proxy]
+
+  mail:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mail-data:/data
+    networks: [proxy, backend]
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
 networks:
   proxy:
@@ -35,3 +50,5 @@ networks:
 volumes:
   prometheus-data:
   grafana-data:
+  mail-data:
+   
