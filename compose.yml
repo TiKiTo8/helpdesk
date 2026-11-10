@@ -153,6 +153,38 @@ services:
       timeout: 5s
       retries: 3
 
+  # Application
+
+  api:
+    build: ./app
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_REPLICA_HOST: db-replica
+      DB_NAME: ${POSTGRES_DB:-helpdesk}
+      DB_USER: app
+      DB_PASSWORD_FILE: /run/secrets/app_password
+      PGTZ: Europe/Paris   # dates des tickets à l'heure de Paris
+    secrets: [app_password]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "1"
+          pids: 128
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      start_period: 20s
+      start_interval: 2s
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
 secrets:
   db_password:
     file: ./secrets/db_password.txt

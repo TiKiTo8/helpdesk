@@ -1,8 +1,11 @@
 """API du helpdesk.
 
 Tout se configure avec des variables d'environnement :
-  DATABASE_URL  obligatoire  PostgreSQL (écritures + lectures)
-  REPLICA_URL   optionnel    réplica PostgreSQL pour /api/stats (sinon : primaire)
+  DB_HOST           base principale (écritures et lectures), "db" par défaut
+  DB_REPLICA_HOST   optionnel, réplica pour /api/stats (sinon : base principale)
+  DB_NAME           "helpdesk" par défaut
+  DB_USER           "app" par défaut
+  DB_PASSWORD_FILE  fichier secret du mot de passe, "/run/secrets/app_password" par défaut
   REDIS_URL     optionnel    cache de la liste des tickets (sinon : pas de cache)
   SMTP_HOST     optionnel    serveur mail (sinon : aucun mail envoyé)
   SMTP_PORT     optionnel    1025 par défaut
@@ -29,18 +32,36 @@ CACHE_KEY = "tickets"
 CACHE_TTL = 30  # secondes
 COLUMNS = "id, title, description, email, status, to_char(created_at, 'DD/MM/YYYY HH24:MI') AS created_at"
 
-DATABASE_URL = os.environ["DATABASE_URL"]
-REPLICA_URL = os.environ.get("REPLICA_URL")
+DB_HOST = os.environ.get("DB_HOST", "db")
+DB_REPLICA_HOST = os.environ.get("DB_REPLICA_HOST")
+DB_NAME = os.environ.get("DB_NAME", "helpdesk")
+DB_USER = os.environ.get("DB_USER", "app")
+DB_PASSWORD_FILE = os.environ.get("DB_PASSWORD_FILE", "/run/secrets/app_password")
 REDIS_URL = os.environ.get("REDIS_URL")
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "1025"))
 
-primary = ConnectionPool(DATABASE_URL, kwargs={"row_factory": dict_row}, open=False)
-replica = (
-    ConnectionPool(REPLICA_URL, kwargs={"row_factory": dict_row}, timeout=2, open=False)
-    if REPLICA_URL
-    else None
-)
+# Le mot de passe est lu dans le secret, il n'apparaît pas dans l'environnement du conteneur.
+with open(DB_PASSWORD_FILE, encoding="utf-8") as f:
+    DB_PASSWORD = f.read().rstrip("\r\n")
+
+
+def db_pool(host: str, **options) -> ConnectionPool:
+    return ConnectionPool(
+        kwargs={
+            "host": host,
+            "dbname": DB_NAME,
+            "user": DB_USER,
+            "password": DB_PASSWORD,
+            "row_factory": dict_row,
+        },
+        open=False,
+        **options,
+    )
+
+
+primary = db_pool(DB_HOST)
+replica = db_pool(DB_REPLICA_HOST, timeout=2) if DB_REPLICA_HOST else None
 cache = (
     redis.Redis.from_url(REDIS_URL, decode_responses=True, socket_timeout=1)
     if REDIS_URL and redis
