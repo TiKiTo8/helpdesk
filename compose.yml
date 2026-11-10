@@ -169,7 +169,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks: [backend]
+    networks: [proxy, backend]
     logging: *logging
     deploy:
       resources:
