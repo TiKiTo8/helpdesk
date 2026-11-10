@@ -221,56 +221,72 @@ def probe(pool: ConnectionPool, query: str) -> tuple[dict | None, float | None]:
 
 
 def lsn_to_int(lsn: str) -> int:
+    """Position dans le journal Postgres ("16/B374D848") convertie en nombre d'octets."""
     high, low = lsn.split("/")
     return (int(high, 16) << 32) + int(low, 16)
 
 
-@app.get("/api/infra")
-def infra():
-    main_row, main_ms = probe(
+def primary_status() -> tuple[dict, str | None]:
+    row, ms = probe(
         primary,
         "SELECT pg_current_wal_lsn()::text AS lsn, current_setting('server_version') AS version,"
         " (SELECT count(*) FROM tickets) AS tickets",
     )
-    result = {
-        "primary": {"ok": main_row is not None, "latency_ms": main_ms},
-        "replica": {"configured": replica is not None, "ok": False},
-        "cache": {"configured": cache is not None, "ok": False},
-        "backup": None,
-        "backup_interval_s": BACKUP_INTERVAL,
+    if not row:
+        return {"ok": False}, None
+    return {"ok": True, "latency_ms": ms, "version": row["version"], "tickets": row["tickets"]}, row["lsn"]
+
+
+def replica_status(primary_lsn: str | None) -> dict:
+    if not replica:
+        return {"configured": False, "ok": False}
+    row, ms = probe(
+        replica,
+        "SELECT pg_last_wal_replay_lsn()::text AS lsn, pg_is_in_recovery() AS read_only,"
+        " (SELECT count(*) FROM tickets) AS tickets",
+    )
+    if not row:
+        return {"configured": True, "ok": False}
+    lag = max(lsn_to_int(primary_lsn) - lsn_to_int(row["lsn"]), 0) if primary_lsn else None
+    return {
+        "configured": True,
+        "ok": True,
+        "latency_ms": ms,
+        "read_only": row["read_only"],
+        "tickets": row["tickets"],
+        "lag_bytes": lag,
     }
-    if main_row:
-        result["primary"] |= {"version": main_row["version"], "tickets": main_row["tickets"]}
 
-    if replica:
-        row, ms = probe(
-            replica,
-            "SELECT pg_last_wal_replay_lsn()::text AS lsn, pg_is_in_recovery() AS read_only,"
-            " (SELECT count(*) FROM tickets) AS tickets",
-        )
-        if row:
-            result["replica"] |= {
-                "ok": True,
-                "latency_ms": ms,
-                "read_only": row["read_only"],
-                "tickets": row["tickets"],
-                "lag_bytes": max(lsn_to_int(main_row["lsn"]) - lsn_to_int(row["lsn"]), 0) if main_row else None,
-            }
 
-    if cache:
-        start = time.perf_counter()
-        try:
-            cache.ping()
-            result["cache"] |= {"ok": True, "latency_ms": round((time.perf_counter() - start) * 1000, 1)}
-        except redis.RedisError:
-            pass
+def cache_status() -> dict:
+    if not cache:
+        return {"configured": False, "ok": False}
+    start = time.perf_counter()
+    try:
+        cache.ping()
+    except redis.RedisError:
+        return {"configured": True, "ok": False}
+    return {"configured": True, "ok": True, "latency_ms": round((time.perf_counter() - start) * 1000, 1)}
 
+
+def last_backup() -> dict | None:
     row, _ = probe(
         primary,
         "SELECT to_char(created_at, 'DD/MM/YYYY HH24:MI') AS at, extract(epoch FROM now() - created_at)::int AS age_s,"
         " size_bytes, source, kept FROM backup_log ORDER BY id DESC LIMIT 1",
     )
-    if row:
-        result["backup"] = row | {"ok": row["age_s"] < 2 * BACKUP_INTERVAL}
+    if not row:
+        return None
+    return row | {"ok": row["age_s"] < 2 * BACKUP_INTERVAL}
 
-    return result
+
+@app.get("/api/infra")
+def infra():
+    primary_state, primary_lsn = primary_status()
+    return {
+        "primary": primary_state,
+        "replica": replica_status(primary_lsn),
+        "cache": cache_status(),
+        "backup": last_backup(),
+        "backup_interval_s": BACKUP_INTERVAL,
+    }

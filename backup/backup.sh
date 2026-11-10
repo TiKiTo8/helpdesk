@@ -10,22 +10,23 @@ dir=/var/lib/postgresql/backups
 umask 077
 mkdir -p "$dir"
 
-dump() {
-  pg_dump -h "$1" -Fc -Z zstd -f "$tmp" && source=$1
-}
-
 backup() {
   file="$dir/$PGDATABASE-$(date +%Y%m%d-%H%M%S).dump"
   tmp="$file.tmp"
 
-  if dump "$PGHOST" || { echo "réplica indisponible, sauvegarde depuis db" >&2; dump db; }; then
-    mv "$tmp" "$file"
-    echo "sauvegarde OK : $file"
-  else
-    rm -f "$tmp"
-    echo "sauvegarde échouée" >&2
-    return 1
-  fi
+  # Le réplica d'abord, pour ne pas charger la base principale ; la base principale s'il ne répond pas.
+  for source in "$PGHOST" db; do
+    if pg_dump -h "$source" -Fc -Z zstd -f "$tmp"; then
+      mv "$tmp" "$file"
+      echo "sauvegarde OK : $file (depuis $source)"
+      return 0
+    fi
+    echo "$source ne répond pas" >&2
+  done
+
+  rm -f "$tmp"
+  echo "sauvegarde échouée" >&2
+  return 1
 }
 
 rotate() {

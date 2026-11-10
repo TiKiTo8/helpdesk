@@ -192,8 +192,7 @@
   .link.cut span { color: var(--danger); font-weight: 600; }
   @keyframes flow { from { background-position: 0 0; } to { background-position: 20px 0; } }
 
-  .side { margin-top: 24px; display: flex; gap: 12px 32px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
-  .side b { color: var(--ink); font-weight: 600; }
+  .side { margin-top: 24px; }
 
   .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -289,7 +288,7 @@
         <h2 id="infra-title">Infrastructure</h2>
         <p class="verdict" id="verdict" aria-live="polite">Vérification en cours...</p>
       </div>
-      <p class="checked" id="checked"></p>
+      <p class="checked">Mis à jour toutes les 3 s</p>
     </div>
 
     <div class="flow">
@@ -312,7 +311,7 @@
       </article>
     </div>
 
-    <p class="side" id="side"></p>
+    <ul class="facts side" id="side"></ul>
 
   </section>
 </div>
@@ -349,6 +348,7 @@ async function api(path, options = {}) {
   const res = await fetch(path, {
     ...options,
     headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    signal: AbortSignal.timeout(5000),
   });
   const data = await res.json().catch(() => null);
   return { res, data };
@@ -360,7 +360,7 @@ async function load() {
     if (!list.res.ok) throw new Error(list.res.status);
     state.tickets = list.data;
     state.error = false;
-    renderInfra(list.res.headers.get("X-Cache"), stats && stats.res.ok ? stats.data.source : null);
+    renderSource(list.res.headers.get("X-Cache"), stats && stats.res.ok ? stats.data.source : null);
   } catch {
     state.error = true;
   }
@@ -507,7 +507,7 @@ $("search").addEventListener("input", (event) => {
   render();
 });
 
-function renderInfra(cache, source) {
+function renderSource(cache, source) {
   const parts = [];
   if (cache) parts.push(cache === "HIT" ? "Liste servie depuis le cache Redis." : "Liste lue dans la base.");
   if (source) parts.push(source === "replica" ? "Compteurs lus sur le réplica." : "Compteurs lus sur la base principale.");
@@ -552,9 +552,12 @@ function show(next, push) {
   $("view-tickets").hidden = next !== "tickets";
   $("view-infra").hidden = next !== "infra";
   $("summary").hidden = next !== "tickets";
-  document.querySelectorAll(".nav a").forEach((a) => (a.dataset.view === next ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current")));
+  for (const a of document.querySelectorAll(".nav a")) {
+    if (a.dataset.view === next) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
   document.title = next === "infra" ? "Infrastructure, Helpdesk" : "Helpdesk";
-  next === "infra" ? loadInfra() : load();
+  refresh();
 }
 
 document.querySelectorAll(".nav a").forEach((a) =>
@@ -567,7 +570,6 @@ window.addEventListener("popstate", () => show(location.pathname.startsWith(VIEW
 
 // Vue Infrastructure
 const number = new Intl.NumberFormat("fr-FR");
-let checkedAt = null;
 
 function bytes(n) {
   if (n < 1024) return `${number.format(n)} o`;
@@ -615,15 +617,14 @@ function wire(id, live, label) {
 async function loadInfra() {
   let data;
   try {
-    const res = await fetch("/api/infra");
+    const { res, data: body } = await api("/api/infra");
     if (!res.ok) throw new Error(res.status);
-    data = await res.json();
+    data = body;
   } catch {
-    $("verdict").textContent = "L'API ne répond pas : impossible de vérifier l'infrastructure.";
+    $("verdict").textContent = "L'API ne répond pas.";
     $("verdict").className = "verdict bad";
     return;
   }
-  checkedAt = Date.now();
   const { primary: db, replica, backup, cache } = data;
 
   paint("node-primary", db.ok
@@ -631,7 +632,7 @@ async function loadInfra() {
         facts: [["Répond en", `${number.format(db.latency_ms)} ms`], ["PostgreSQL", db.version]] }
     : { state: "bad", pill: "Hors ligne", figure: "-", facts: [] });
 
-  const replicaUp = replica.configured && replica.ok;
+  const replicaUp = replica.ok;
   paint("node-replica", replicaUp
     ? { state: "ok", pill: "En ligne", figure: number.format(replica.tickets), caption: replica.tickets > 1 ? "tickets" : "ticket",
         facts: [["Accès en", replica.read_only ? "lecture seule" : "écriture"], ["Répond en", `${number.format(replica.latency_ms)} ms`]] }
@@ -641,7 +642,6 @@ async function loadInfra() {
   else wire("link-replication", true, replica.lag_bytes === 0 ? "Réplication à jour" : `${bytes(replica.lag_bytes)} de retard`);
 
   if (backup) {
-    const fromReplica = backup.source === "db-replica";
     paint("node-backup", {
       state: backup.ok ? "ok" : "warn",
       pill: backup.ok ? "À jour" : "En retard",
@@ -649,7 +649,7 @@ async function loadInfra() {
       caption: `dernière sauvegarde, le ${backup.at.replace(" ", " à ")}`,
       facts: [["Taille", bytes(backup.size_bytes)], ["Conservées", `${backup.kept}`], ["Toutes les", `${Math.round(data.backup_interval_s / 60)} min`]],
     });
-    wire("link-backup", backup.ok, fromReplica ? "Lue sur le réplica" : "Lue sur la base principale");
+    wire("link-backup", backup.ok, backup.source === "db-replica" ? "Lue sur le réplica" : "Lue sur la base principale");
   } else {
     paint("node-backup", { state: "warn", pill: "Aucune", figure: "-", facts: [] });
     wire("link-backup", false, "En attente");
@@ -663,23 +663,24 @@ async function loadInfra() {
   $("verdict").textContent = problems.length ? problems.join(" ") : "Tout fonctionne.";
   $("verdict").className = `verdict${problems.length ? " bad" : ""}`;
 
-  const redisState = cache.configured ? (cache.ok ? `en ligne, ${number.format(cache.latency_ms)} ms` : "hors ligne") : "non installé";
-  const line = document.createElement("span");
-  line.append(...fact("Cache Redis :", redisState).childNodes);
-  $("side").replaceChildren(line);
-  tick();
+  let redisState = "non installé";
+  if (cache.configured) redisState = cache.ok ? `en ligne, ${number.format(cache.latency_ms)} ms` : "hors ligne";
+  $("side").replaceChildren(fact("Cache Redis :", redisState));
 }
 
-function tick() {
-  if (checkedAt) $("checked").textContent = `Mis à jour toutes les 3 s`;
+// Une seule boucle de rafraîchissement : la requête suivante part quand la précédente est finie,
+// toutes les 3 s sur l'infrastructure, toutes les 20 s sur les demandes, en pause si l'onglet est caché.
+let timer;
+let round = 0;
+async function refresh() {
+  clearTimeout(timer);
+  const current = ++round;
+  if (!document.hidden) await (view === "infra" ? loadInfra() : load());
+  if (current === round) timer = setTimeout(refresh, view === "infra" ? 3000 : 20000);
 }
-
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") (view === "infra" ? loadInfra : load)();
+  if (!document.hidden) refresh();
 });
-setInterval(() => document.visibilityState === "visible" && view === "tickets" && load(), 20000);
-setInterval(() => document.visibilityState === "visible" && view === "infra" && loadInfra(), 3000);
-setInterval(tick, 1000);
 
 show(view, false);
 </script>
