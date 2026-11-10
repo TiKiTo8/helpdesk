@@ -23,6 +23,18 @@ http:
       rule: "Host(`alertmanager.localhost`)"
       service: alertmanager
 
+    grafana:
+      rule: "Host(`grafana.localhost`)"
+      service: grafana
+
+    prometheus:
+      rule: "Host(`prometheus.localhost`)"
+      service: prometheus
+
+    mail:
+      rule: "Host(`mail.localhost`)"
+      service: mail
+
   services:
     web:
       loadBalancer:

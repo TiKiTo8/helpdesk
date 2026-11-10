@@ -16,6 +16,20 @@ Projet de conteneurisation en B3, à trois. Une application de tickets de suppor
 | Le volume de sauvegardes | Luka | `pg_dump` toutes les heures dans un volume |
 | Le mailing et le monitoring | Baptiste | à définir |
 
+## Lancer le projet
+
+1. Créer les fichiers de mots de passe dans `secrets/` (voir [secrets/README.md](secrets/README.md)) et copier `.env.example` en `.env`.
+2. `docker compose up -d --build --wait`
+
+| Adresse | Service |
+|---|---|
+| http://helpdesk.localhost | l'application |
+| http://helpdesk.localhost/infrastructure | l'état de la base, du réplica et des sauvegardes |
+| http://mail.localhost | les mails envoyés par l'application (Mailpit) |
+| http://grafana.localhost | les tableaux de bord (utilisateur `admin`) |
+| http://prometheus.localhost | les métriques brutes |
+| http://traefik.localhost/dashboard/ | le tableau de bord du reverse proxy |
+
 ## Ce qui sera noté
 
 | Critère | Qui vérifie |
