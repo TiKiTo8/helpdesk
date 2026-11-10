@@ -1,0 +1,21 @@
+# Version du format du fichier de configuration
+apiVersion: 1
+
+providers:
+  # <string, requis> nom du fournisseur
+  - name: helpdesk
+    # organisation
+    orgId: 1
+    # dossier Grafana qui reçoit les dashboards ('' = général)
+    folder: ''
+    # type de fournisseur : fichiers
+    type: file
+    # interdit la suppression depuis l'interface
+    disableDeletion: true
+    # fréquence de relecture du dossier, en secondes
+    updateIntervalSeconds: 10
+    # autorise ou non la modification depuis l'interface
+    allowUiUpdates: false
+    options:
+      # dossier des fichiers JSON dans le conteneur
+      path: /var/lib/grafana/dashboards

@@ -185,6 +185,64 @@ services:
       timeout: 3s
       retries: 3
 
+  # Supervision et mail (Baptiste)
+
+  prometheus:
+    image: prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    pids_limit: 100
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - prometheus-data:/prometheus
+    networks: [proxy, backend]
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9090/-/healthy"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:12.2.0@sha256:74144189b38447facf737dfd0f3906e42e0776212bf575dc3334c3609183adf7
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    pids_limit: 100
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    secrets: [grafana_admin_password]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro,z
+      - ./grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro,z
+      - ./grafana/helpdesk.json:/var/lib/grafana/dashboards/helpdesk.json:ro,z
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks: [proxy]
+    logging: *logging
+
+  mail:
+    image: axllent/mailpit:v1.27.7@sha256:cae83a33cd9b9598e4acb210be673dda7e741d5271ed4045310ab456950a136a
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 50
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mail-data:/data
+    networks: [proxy, backend]
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
 secrets:
   db_password:
     file: ./secrets/db_password.txt
@@ -192,6 +250,8 @@ secrets:
     file: ./secrets/replication_password.txt
   app_password:
     file: ./secrets/app_password.txt
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password.txt
 
 networks:
   proxy:
@@ -202,3 +262,6 @@ volumes:
   db-data:
   db-replica-data:
   backups:
+  prometheus-data:
+  grafana-data:
+  mail-data:
