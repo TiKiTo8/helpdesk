@@ -16,6 +16,47 @@ x-postgres-limits: &postgres-limits
       pids: 256
 
 services:
+  # Reverse proxy et front (Maxime)
+
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 100
+    ports:
+      - "80:80"
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro,z
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro,z
+    networks: [proxy]
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+    pids_limit: 50
+    volumes:
+      - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro,z
+      - ./web/index.html:/usr/share/nginx/html/index.html:ro,z
+    networks: [proxy]
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
   # Base de données, réplication et sauvegardes (Luka)
 
   db:
@@ -121,6 +162,7 @@ secrets:
     file: ./secrets/app_password.txt
 
 networks:
+  proxy:
   backend:
     internal: true
 

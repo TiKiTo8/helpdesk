@@ -1,0 +1,18 @@
+http:
+  routers:
+    site:
+      rule: "Host(`helpdesk.localhost`)"
+      service: web
+    api:
+      rule: "Host(`helpdesk.localhost`) && PathPrefix(`/api`)"
+      service: api
+
+  services:
+    web:
+      loadBalancer:
+        servers:
+          - url: "http://web:80"
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://api:8000"
