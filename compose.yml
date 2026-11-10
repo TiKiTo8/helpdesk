@@ -43,9 +43,15 @@ services:
   web:
     build: ./web
     restart: unless-stopped
+    user: "101:101"
+    read_only: true
+    cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 64m
     pids_limit: 50
+    tmpfs:
+      - /var/cache/nginx:uid=101,gid=101
+      - /var/run:uid=101,gid=101
     volumes:
       - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro,z
       - ./web/index.html:/usr/share/nginx/html/index.html:ro,z
@@ -239,13 +245,15 @@ services:
   mail:
     image: axllent/mailpit:v1.27.7@sha256:cae83a33cd9b9598e4acb210be673dda7e741d5271ed4045310ab456950a136a
     restart: unless-stopped
+    user: "65534:65534"
+    cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     mem_limit: 128m
     pids_limit: 50
     environment:
       MP_DATABASE: /data/mailpit.db
-    volumes:
-      - mail-data:/data
+    tmpfs:
+      - /data:uid=65534,gid=65534
     networks: [proxy, backend]
     logging: *logging
     healthcheck:
