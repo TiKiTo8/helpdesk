@@ -7,6 +7,10 @@ http:
       rule: "Host(`helpdesk.localhost`) && PathPrefix(`/api`)"
       service: api
 
+    dashboard:
+      rule: "Host(`traefik.localhost`)"
+      service: api@internal
+
   services:
     web:
       loadBalancer:
