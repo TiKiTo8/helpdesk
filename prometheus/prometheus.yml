@@ -1,0 +1,40 @@
+# Config Prometheus pour Helpdesk (base : exemple officiel de Prometheus)
+global:
+  scrape_interval: 15s 
+  evaluation_interval: 15s 
+
+# Configuration d'Alertmanager 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+# Règles d'alerte, chargées puis évaluées selon 'evaluation_interval'
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  
+
+  # Prometheus se surveille lui-même
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          app: "prometheus"
+
+  # L'API : métriques tickets, cache, mails (chemin par défaut : /metrics)
+  - job_name: "api"
+    static_configs:
+      - targets: ["api:8000"]
+        labels:
+          app: "api"
+
+  # Traefik : trafic HTTP par service (à adapter si le port des métriques change)
+  - job_name: "traefik"
+    static_configs:
+      - targets: ["traefik:8080"]
+        labels:
+          app: "traefik"
