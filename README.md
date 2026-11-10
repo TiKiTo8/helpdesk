@@ -8,8 +8,8 @@ Projet de conteneurisation en B3, à trois. Une application de tickets de suppor
 |---|---|---|
 | L'application | Tout le monde | à définir |
 | Le Dockerfile de l'application | Tout le monde | |
-| Les bind mounts pour le code et la config | Maxime | |
-| Le reverse proxy | Maxime | à définir |
+| Les bind mounts pour le code et la config | Maxime | fichiers de config montés en lecture seule |
+| Le reverse proxy | Maxime | Traefik |
 | Le `compose.yml` | Tout le monde | |
 | La base de données avec un volume persistant | Luka | PostgreSQL 18 |
 | La réplication master / slave | Luka | réplication en streaming de PostgreSQL |
@@ -48,3 +48,5 @@ Projet de conteneurisation en B3, à trois. Une application de tickets de suppor
 Chacun doit pouvoir expliquer sa partie : comment elle marche, pourquoi on a fait ces choix et comment on pourrait l'améliorer.
 
 La partie base de données est détaillée dans [docs/base-de-donnees.md](docs/base-de-donnees.md).
+
+La partie reverse proxy, bind mounts et alertes (Maxime) est détaillée dans [docs/reverse-proxy-et-alertes.md](docs/reverse-proxy-et-alertes.md).
