@@ -53,6 +53,7 @@ Ce n'est pas « la meilleure base » dans l'absolu : c'est celle qui coche le mi
 | Réplica : fichier `.pgpass` (droits `600`) régénéré à chaque démarrage | Avec une variable, `pg_basebackup -R` recopie le mot de passe **en clair** dans la configuration du réplica. Avec un fichier, elle ne contient que son chemin. | `PGPASSWORD`. |
 | Scripts de sauvegarde : mot de passe lu dans le secret au lancement | Il ne vit que dans la mémoire du processus : ni dans la config du conteneur, ni sur le disque. | Variable d'environnement du conteneur. |
 | **Aucun conteneur en root** (`user: postgres`, UID 70) | Le cours range le root par défaut dans les pratiques dangereuses. Les volumes sont montés sur `/var/lib/postgresql`, qui appartient à `postgres` dans l'image : ils en héritent, donc pas besoin de root pour les préparer. | Démarrer en root puis rétrograder (ce que fait l'image par défaut). |
+| Compte `app` pour l'application | Moindre privilège : `SELECT`, `INSERT`, `UPDATE` sur les tickets, rien d'autre. Vérifié : `DELETE`, `DROP TABLE` et `CREATE TABLE` sont refusés. Une faille dans l'appli (injection SQL) ne peut ni vider ni détruire la base. | L'appli connectée en superutilisateur, qui peut tout faire. |
 | Sauvegardes en `600` (`umask 077`) | Un dump contient toute la base. | Fichiers lisibles par tous. |
 | Image fixée par empreinte `sha256` | Reproductibilité : exactement la même image à chaque installation (cours, p. 44). | Tag seul, qui peut pointer vers une autre image demain. |
 | Limites RAM / CPU / processus, rotation des logs | Un conteneur ne peut ni saturer l'hôte, ni remplir le disque de logs (cours, p. 70-71). | Aucune limite. |
@@ -77,7 +78,7 @@ Ce n'est pas « la meilleure base » dans l'absolu : c'est celle qui coche le mi
 **Avant le premier démarrage :** créer les deux fichiers de mots de passe (voir `secrets/README.md`). Sans eux, Compose refuse de démarrer.
 
 **Premier démarrage, dans l'ordre :**
-1. `db` : volume vide → Postgres s'initialise et joue `db/init/` : création de la table (`01-schema.sql`), du compte `replicator` et de son autorisation dans `pg_hba.conf` (`02-replication.sh`).
+1. `db` : volume vide → Postgres s'initialise et joue `db/init/` : création de la table (`01-schema.sql`), du compte `replicator` et de son autorisation dans `pg_hba.conf` (`02-replication.sh`), du compte `app` et de ses droits (`03-app-user.sh`).
 2. `db` devient `healthy` (`pg_isready` en TCP).
 3. `db-replica` démarre : il écrit son fichier `.pgpass` depuis le secret ; volume vide → `pg_basebackup -R -X stream` clone le primaire. `-R` crée `standby.signal` : Postgres démarre en **lecture seule** et suit le primaire.
 4. `backup` démarre, fait une première sauvegarde, puis une toutes les `BACKUP_INTERVAL` secondes, en gardant les `BACKUP_KEEP` plus récentes.
@@ -122,8 +123,8 @@ docker compose exec db id        # uid=70(postgres)
 
 | Pour | Information |
 |---|---|
-| Application — écritures | hôte `db`, port `5432`, utilisateur `POSTGRES_USER`, base `POSTGRES_DB`. Mot de passe : ajouter le secret `db_password` au service et le lire dans `/run/secrets/db_password`, plutôt qu'un mot de passe dans `DATABASE_URL`. |
-| Application — lectures qui tolèrent un léger retard (stats, rapports) | même URL avec l'hôte `db-replica` |
+| Application — écritures | hôte `db`, port `5432`, utilisateur **`app`**, base `POSTGRES_DB`. Mot de passe : ajouter le secret `app_password` au service et le lire dans `/run/secrets/app_password`, plutôt qu'un mot de passe dans `DATABASE_URL`. |
+| Application — lectures qui tolèrent un léger retard (stats, rapports) | mêmes identifiants, hôte `db-replica` (le compte `app` y existe aussi, la réplication copie tout) |
 | Compose | réseau `backend` ; `depends_on: db: { condition: service_healthy }` |
 
 ---
@@ -164,7 +165,7 @@ docker compose exec db id        # uid=70(postgres)
 - Secrets chiffrés : en dehors de Swarm, un secret Compose est un simple fichier monté en lecture seule, non chiffré. Swarm ou un coffre-fort (Vault) les chiffrent.
 - Supprimer aussi les capacités Linux inutiles (`cap_drop: [ALL]` puis le strict nécessaire), comme dans la démo de hardening du cours.
 - Scanner les images (Trivy, Dockle) et le dépôt (Gitleaks) avant chaque livraison.
-- Utilisateur dédié à l'appli avec les seuls droits nécessaires, au lieu du superutilisateur.
+- Un compte de sauvegarde en lecture seule (`pg_read_all_data`) au lieu de l'administrateur pour `backup`.
 - Chiffrer les sauvegardes (`age`, `gpg`) avant de les copier ailleurs.
 
 **Sauvegardes**
