@@ -164,6 +164,7 @@ services:
       DB_NAME: ${POSTGRES_DB:-helpdesk}
       DB_USER: app
       DB_PASSWORD_FILE: /run/secrets/app_password
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-3600}   # pour signaler une sauvegarde trop ancienne
       PGTZ: Europe/Paris   # dates des tickets à l'heure de Paris
     secrets: [app_password]
     depends_on:
