@@ -10,15 +10,15 @@ Projet de conteneurisation B3 — groupe de 3, présentation de 15 min.
 
 | Élément demandé | Responsable | Technologie choisie |
 |---|---|---|
-| Application (IA autorisée) | Membre 2 | *à définir* |
-| `Dockerfile` pour le build de l'application | Membre 2 | — |
-| Bind mounts pour partager le code / la configuration de l'application | Membre 2 | — |
-| Reverse proxy qui facilite l'accès aux services (Traefik, Caddy, NGINX…) | Membre 1 | *à définir* |
-| `compose.yml` | Membre 1 | — |
-| Base de données avec un volume persistant | Membre 3 | *à définir* |
-| Réplication master / slave de la base | Membre 3 | — |
-| Volume pour sauvegarder les fichiers de manière persistante (backups) | Membre 3 | *à définir* |
-| Au moins un autre service pertinent (cache, mailing, recherche, monitoring…) | *à définir* | *à définir* |
+| Application (IA autorisée) | TOUS | *à définir* |
+| `Dockerfile` pour le build de l'application | TOUS | — |
+| Bind mounts pour partager le code / la configuration de l'application | Maxime | — |
+| Reverse proxy qui facilite l'accès aux services (Traefik, Caddy, NGINX…) | Maxime | *à définir* |
+| `compose.yml` | TOUS | — |
+| Base de données avec un volume persistant | Luka | *à définir* |
+| Réplication master / slave de la base | Baptiste | — |
+| Volume pour sauvegarder les fichiers de manière persistante (backups) | Luka | *à définir* |
+| Mailing et Monitoring | Baptiste | *à définir* |
 
 | Membre | Nom |
 |---|---|
