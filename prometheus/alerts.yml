@@ -1,0 +1,10 @@
+groups:
+  - name: helpdesk
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Le service {{ $labels.job }} ne répond plus"
