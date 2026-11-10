@@ -1,199 +1,139 @@
-# Base de données, réplication & sauvegardes
+# Base de données, réplication et sauvegardes
 
-Responsable : Luka — services `db`, `db-replica`, `backup` ; volumes `db-data`, `db-replica-data`, `backups`.
+Partie gérée par Luka : les services `db`, `db-replica` et `backup`, et leurs volumes.
 
----
+## Ce qu'on a mis en place
 
-## 1. Choix techniques
+Trois conteneurs, tous sur le réseau interne `backend`, sans aucun port ouvert vers l'extérieur :
 
-### PostgreSQL 18 plutôt que MariaDB ou MongoDB
-
-Ce n'est pas « la meilleure base » dans l'absolu : c'est celle qui coche le mieux **nos** critères.
-
-| Critère | Pourquoi PostgreSQL |
-|---|---|
-| Données d'un helpdesk | Tickets, utilisateurs, commentaires sont liés entre eux : c'est du relationnel. Les contraintes (`NOT NULL`, `CHECK`, clés étrangères) protègent les données au niveau de la base, pas seulement dans le code. |
-| Réplication master / slave | Intégrée : `pg_basebackup -R` clone le primaire, puis le réplica rejoue son journal (WAL) en continu. Aucun outil externe. |
-| Sauvegardes | `pg_dump` fait un instantané cohérent **sans bloquer** les écritures, `pg_restore` restaure tout ou partie. |
-| Indépendance vis-à-vis de l'appli | Pilotes pour Python, Node, PHP, Java… L'équipe appli garde le choix du langage. |
-| Image Docker | Image officielle maintenue, variante `alpine` légère, `pg_isready` pour le healthcheck. |
-
-**Alternatives écartées :**
-- **MariaDB / MySQL** : tout à fait valable (réplication par binlog, `mariadb-dump`). PostgreSQL est plus strict sur les types et les contraintes, et sa réplication se met en place en une commande.
-- **MongoDB** : base de documents. Les liens ticket ↔ utilisateur seraient à gérer dans le code, et le replica set (bascule automatique) dépasse ce qui est demandé.
-- **SQLite** : un fichier, sans serveur ni réplication. Exclu par la consigne.
-
-### Réplication : streaming asynchrone, physique
-
-| Choix | Pourquoi | Alternative écartée |
-|---|---|---|
-| Réplication **physique** (copie du WAL) | Le réplica est une copie octet pour octet : toutes les tables, sans rien configurer table par table. | Réplication logique : utile pour ne copier qu'une partie des tables, plus de configuration. |
-| **Asynchrone** | Le primaire n'attend pas le réplica : une panne du réplica ne bloque pas les écritures. | Synchrone : zéro perte de données, mais si le réplica tombe, le primaire ne peut plus écrire. |
-| Compte `replicator` dédié | Moindre privilège : droit `REPLICATION` seulement, aucun accès aux tables. | Réutiliser le superutilisateur. |
-| Clonage au premier démarrage, dans l'entrypoint | Le réplica se construit tout seul depuis zéro : reproductible. | Copie manuelle d'un dump : étape humaine, non reproductible. |
-| Pas de bascule automatique | Hors consigne ; on sait expliquer comment la faire (§4). | Patroni / repmgr : plusieurs conteneurs de plus. |
-
-### Sauvegardes : `pg_dump` en boucle dans un conteneur dédié
-
-| Choix | Pourquoi | Alternative écartée |
-|---|---|---|
-| Conteneur `backup` séparé | Une responsabilité par conteneur. | Script lancé depuis l'hôte : pas reproductible. |
-| Lecture sur le **réplica** | Le dump ne charge pas le primaire qui sert l'appli. Repli sur le primaire si le réplica est absent. | Toujours sur le primaire. |
-| Même image que la base | `pg_dump` doit être de version ≥ au serveur ; aucune image de plus. | Image tierce : une dépendance de plus à justifier. |
-| Dump logique `-Fc -Z zstd` | Cohérent, compressé, restaurable table par table. | Copier les fichiers du volume : incohérent si la base écrit pendant la copie. |
-| Boucle `sleep` | Simple à lire et à expliquer. | `cron` : un démon de plus ; pgBackRest : trop lourd ici. |
-| Volume nommé `backups` | La consigne demande un volume ; les sauvegardes survivent à la suppression des conteneurs ; aucun problème de propriétaire de fichiers. | Bind mount `./backups` (le cours le classe pour les backups) : fichiers directement sur l'hôte, mais créés par l'UID 70 du conteneur, qui n'existe pas sur l'hôte, et comportement différent sous Windows et Linux. |
-
-### Sécurité : comme vu en cours
-
-| Choix | Pourquoi | Alternative écartée |
-|---|---|---|
-| Mots de passe en **secrets** (`secrets/*.txt` → `/run/secrets/<nom>`) | Le cours : un mot de passe en variable d'environnement est « très mauvaise idée », visible avec `docker inspect`. Vérifié : 0 occurrence dans `docker inspect` des 3 conteneurs. | Variables `POSTGRES_PASSWORD` dans le `.env`. |
-| `POSTGRES_PASSWORD_FILE` | Prévu par l'image officielle : elle lit le mot de passe dans le fichier. | Script maison. |
-| Réplica : fichier `.pgpass` (droits `600`) régénéré à chaque démarrage | Avec une variable, `pg_basebackup -R` recopie le mot de passe **en clair** dans la configuration du réplica. Avec un fichier, elle ne contient que son chemin. | `PGPASSWORD`. |
-| Scripts de sauvegarde : mot de passe lu dans le secret au lancement | Il ne vit que dans la mémoire du processus : ni dans la config du conteneur, ni sur le disque. | Variable d'environnement du conteneur. |
-| **Aucun conteneur en root** (`user: postgres`, UID 70) | Le cours range le root par défaut dans les pratiques dangereuses. Les volumes sont montés sur `/var/lib/postgresql`, qui appartient à `postgres` dans l'image : ils en héritent, donc pas besoin de root pour les préparer. | Démarrer en root puis rétrograder (ce que fait l'image par défaut). |
-| Compte `app` pour l'application | Moindre privilège : `SELECT`, `INSERT`, `UPDATE` sur les tickets, rien d'autre. Vérifié : `DELETE`, `DROP TABLE` et `CREATE TABLE` sont refusés. Une faille dans l'appli (injection SQL) ne peut ni vider ni détruire la base. | L'appli connectée en superutilisateur, qui peut tout faire. |
-| Sauvegardes en `600` (`umask 077`) | Un dump contient toute la base. | Fichiers lisibles par tous. |
-| Image fixée par empreinte `sha256` | Reproductibilité : exactement la même image à chaque installation (cours, p. 44). | Tag seul, qui peut pointer vers une autre image demain. |
-| Limites RAM / CPU / processus, rotation des logs | Un conteneur ne peut ni saturer l'hôte, ni remplir le disque de logs (cours, p. 70-71). | Aucune limite. |
-
-> **Le réplica n'est pas une sauvegarde.** Un `DELETE` est répliqué en quelques millisecondes. Le réplica protège d'une panne de machine ; la sauvegarde protège d'une erreur humaine.
-
----
-
-## 2. Fonctionnement
+- **db** : la base principale, PostgreSQL 18. C'est elle qui reçoit toutes les écritures. Ses données sont dans le volume `db-data`.
+- **db-replica** : une copie de `db`, en lecture seule, mise à jour en continu. Ses données sont dans `db-replica-data`.
+- **backup** : fait une sauvegarde de la base toutes les heures et garde les 7 dernières dans le volume `backups`.
 
 ```
-                 réseau backend (internal : aucun accès extérieur)
-
-  ┌──────────────┐   WAL en continu   ┌──────────────┐   pg_dump   ┌──────────┐
-  │ db (master)  ├───────────────────►│ db-replica   │◄────────────┤ backup   │
-  │ lecture +    │                    │ (slave)      │             │          │
-  │ écriture     │◄─ restauration ────┤ lecture seule│             │          │
-  └──────┬───────┘                    └──────┬───────┘             └────┬─────┘
-     db-data                           db-replica-data               backups
+  db (écritures) ──── réplication ────► db-replica (lecture seule) ◄──── pg_dump ──── backup
+     db-data                               db-replica-data                             backups
 ```
 
-**Avant le premier démarrage :** créer les deux fichiers de mots de passe (voir `secrets/README.md`). Sans eux, Compose refuse de démarrer.
+## Pourquoi PostgreSQL
 
-**Premier démarrage, dans l'ordre :**
-1. `db` : volume vide → Postgres s'initialise et joue `db/init/` : création de la table (`01-schema.sql`), du compte `replicator` et de son autorisation dans `pg_hba.conf` (`02-replication.sh`), du compte `app` et de ses droits (`03-app-user.sh`).
-2. `db` devient `healthy` (`pg_isready` en TCP).
-3. `db-replica` démarre : il écrit son fichier `.pgpass` depuis le secret ; volume vide → `pg_basebackup -R -X stream` clone le primaire. `-R` crée `standby.signal` : Postgres démarre en **lecture seule** et suit le primaire.
-4. `backup` démarre, fait une première sauvegarde, puis une toutes les `BACKUP_INTERVAL` secondes, en gardant les `BACKUP_KEEP` plus récentes.
+Un helpdesk, ce sont des tickets, des utilisateurs, des commentaires, des données liées entre elles. Une base relationnelle est donc le choix naturel. Entre PostgreSQL et MariaDB, les deux auraient marché, mais PostgreSQL a trois avantages pour nous :
 
-**Démarrages suivants :** les volumes sont remplis, aucun script d'init ni clonage n'est rejoué.
+- la réplication est intégrée, une seule commande suffit à créer le réplica (`pg_basebackup`) ;
+- `pg_dump` sauvegarde la base sans bloquer les écritures ;
+- il est plus strict sur les types et les contraintes, donc la base refuse elle-même les données incohérentes.
 
-**Healthchecks :**
+On a écarté MongoDB (il faudrait gérer les liens entre tickets et utilisateurs dans le code) et SQLite (pas de serveur, pas de réplication).
 
-| Service | Sain quand… |
-|---|---|
-| `db` | il accepte les connexions TCP |
-| `db-replica` | le flux de réplication est `streaming` (`pg_stat_wal_receiver`), pas seulement « Postgres répond » |
-| `backup` | la dernière sauvegarde a moins de deux intervalles |
+On a pris la **version 18**, la dernière stable, maintenue jusqu'en 2030, et l'image **Alpine**, environ 3 fois plus légère que la version Debian. Seul souci d'Alpine : elle trie mal les accents (`Zoo` passe avant `abri`). On l'a réglé en demandant à Postgres de trier en français avec ICU.
 
-### Commandes
+L'image est fixée par son empreinte `sha256`, comme vu en cours : tout le monde récupère exactement la même image, aujourd'hui comme dans six mois.
+
+## La réplication
+
+Au premier démarrage, le réplica copie entièrement la base principale avec `pg_basebackup`. Ensuite, il reçoit chaque modification en continu, via le journal de Postgres (le WAL). Il est en lecture seule : toute tentative d'écriture est refusée.
+
+Quelques choix :
+
+- **Réplication asynchrone** : la base principale n'attend pas le réplica pour valider une écriture. Si le réplica tombe, l'appli continue de fonctionner.
+- **Un compte `replicator` dédié**, qui a seulement le droit de répliquer. Il ne peut pas lire les tables.
+- **256 Mo de journal conservés** sur la base principale (`wal_keep_size`), pour qu'un réplica arrêté un moment puisse rattraper son retard en redémarrant.
+- **Pas de bascule automatique** si la base principale tombe. Ce n'était pas demandé, mais on sait comment faire (voir les améliorations).
+
+Attention, le réplica n'est pas une sauvegarde : si quelqu'un supprime tous les tickets, la suppression est copiée sur le réplica en quelques millisecondes. Le réplica protège d'une panne, la sauvegarde protège d'une erreur.
+
+## Les sauvegardes
+
+Le conteneur `backup` lance `pg_dump` toutes les heures. Il lit le **réplica**, pour ne pas ralentir la base principale, et se rabat sur `db` si le réplica est absent. Chaque sauvegarde est compressée (format `-Fc` avec zstd) et peut être restaurée en entier ou table par table.
+
+Deux détails qui comptent :
+
+- le dump est d'abord écrit dans un fichier `.tmp`, renommé seulement s'il s'est bien terminé, pour qu'une sauvegarde coupée en plein milieu ne soit jamais prise pour une vraie ;
+- seules les 7 plus récentes sont gardées, les autres sont supprimées.
+
+On a gardé un **volume nommé** plutôt qu'un dossier du PC (bind mount). La consigne parle d'un volume, et avec un bind mount les fichiers auraient appartenu à un utilisateur du conteneur qui n'existe pas sur nos PC, ce qui pose des problèmes de droits, différents sous Windows et sous Linux.
+
+## La sécurité
+
+On a appliqué ce qu'on a vu en cours :
+
+- **Les mots de passe sont des secrets**, pas des variables d'environnement. Chacun est un fichier de `secrets/`, monté dans le conteneur sous `/run/secrets/`. Avec des variables, n'importe qui pouvait les lire avec `docker inspect`.
+- **Aucun conteneur ne tourne en root** : les trois tournent avec l'utilisateur `postgres`.
+- **L'application a son propre compte, `app`**, qui peut lire, créer et modifier des tickets, mais pas en supprimer, ni toucher à la structure de la base. Même avec une faille dans l'appli, on ne peut pas vider la base.
+- **Les sauvegardes ne sont lisibles que par `postgres`**, puisqu'elles contiennent toute la base.
+- **Chaque conteneur a des limites** de mémoire, de CPU et de nombre de processus, et ses logs tournent (3 fichiers de 10 Mo maximum).
+
+## Les healthchecks
+
+- **db** est considéré comme prêt quand il accepte des connexions par le réseau.
+- **db-replica** est sain seulement si la réplication tourne vraiment, pas juste si Postgres répond.
+- **backup** est sain seulement si la dernière sauvegarde a moins de deux heures.
+
+Le réplica et la sauvegarde attendent que `db` soit sain avant de démarrer (`depends_on` avec `condition: service_healthy`).
+
+## Commandes utiles
 
 ```bash
-# La réplication fonctionne : le réplica est en lecture seule et a les mêmes données
+# Vérifier la réplication
 docker compose exec db-replica psql -U helpdesk -c "SELECT pg_is_in_recovery(), count(*) FROM tickets;"
-docker compose exec db psql -U helpdesk -c "SELECT usename, state FROM pg_stat_replication;"
 
-# Sauvegardes
-docker compose exec backup sh /scripts/backup.sh now           # sauvegarde immédiate
-docker compose exec backup sh /scripts/restore.sh              # liste
-docker compose exec backup sh /scripts/restore.sh <fichier>    # restauration (écrase les données)
-docker compose cp backup:/var/lib/postgresql/backups ./backups-export   # copie sur la machine hôte
+# Lancer une sauvegarde tout de suite, lister les sauvegardes, en restaurer une
+docker compose exec backup sh /scripts/backup.sh now
+docker compose exec backup sh /scripts/restore.sh
+docker compose exec backup sh /scripts/restore.sh <fichier>.dump
 
-# Vérifier qu'aucun conteneur ne tourne en root
-docker compose exec db id        # uid=70(postgres)
+# Récupérer les sauvegardes sur son PC
+docker compose cp backup:/var/lib/postgresql/backups ./backups-export
 ```
 
-### Démo (≈ 1 min 30)
+## La démo
 
-1. `docker compose ps` → `db`, `db-replica`, `backup` sont `healthy`.
-2. Créer un ticket dans l'appli → il apparaît sur le réplica (commande ci-dessus).
-3. Écrire sur le réplica → `cannot execute INSERT in a read-only transaction`.
-4. `docker compose stop db-replica`, créer 2 tickets, `docker compose start db-replica` → le réplica rattrape son retard.
-5. Vider la table, restaurer la dernière sauvegarde → les tickets reviennent, sur le primaire **et** sur le réplica.
-6. `docker compose down` puis `up` → tout est toujours là.
+1. `docker compose ps` : les trois services sont `healthy`.
+2. On crée un ticket dans l'appli, il apparaît sur le réplica.
+3. On essaie d'écrire sur le réplica : refusé.
+4. On arrête le réplica, on crée deux tickets, on le relance : il rattrape son retard.
+5. On vide la table, on restaure la dernière sauvegarde : les tickets reviennent, sur la base et sur le réplica.
+6. `docker compose down` puis `up` : tout est toujours là.
 
-### Interface pour le reste de l'équipe
+## Pour le reste de l'équipe
 
-| Pour | Information |
-|---|---|
-| Application — écritures | hôte `db`, port `5432`, utilisateur **`app`**, base `POSTGRES_DB`. Mot de passe : ajouter le secret `app_password` au service et le lire dans `/run/secrets/app_password`, plutôt qu'un mot de passe dans `DATABASE_URL`. |
-| Application — lectures qui tolèrent un léger retard (stats, rapports) | mêmes identifiants, hôte `db-replica` (le compte `app` y existe aussi, la réplication copie tout) |
-| Compose | réseau `backend` ; `depends_on: db: { condition: service_healthy }` |
+L'application se connecte à l'hôte `db`, port 5432, avec l'utilisateur `app`. Son mot de passe est dans le secret `app_password` : il faut ajouter ce secret au service de l'appli et le lire dans `/run/secrets/app_password`. Le service doit être sur le réseau `backend` et dépendre de `db` avec `condition: service_healthy`. Pour les lectures qui peuvent avoir quelques millisecondes de retard (comme les statistiques), on peut utiliser `db-replica` avec le même compte.
 
----
+## Les difficultés rencontrées
 
-## 3. Difficultés rencontrées
+**L'exemple du cours ne marche plus en version 18.** Il monte le volume sur `/var/lib/postgresql/data`. Depuis la v18, l'image range ses données ailleurs et s'arrête avec une erreur. Il faut monter le volume sur `/var/lib/postgresql`.
 
-| Problème | Cause | Solution |
-|---|---|---|
-| Réplica en redémarrage en boucle | En v17, les données étaient à la racine du volume, créée par Docker en `0755` ; Postgres exige `0700`. | Corrigé d'abord par un `chmod 700`. En v18, les données sont dans un sous-dossier créé par `pg_basebackup` lui-même en `0700` : le `chmod` est devenu inutile et a été retiré. |
-| `docker compose stop backup` : 10 s d'attente puis code 137 | Le script tourne en PID 1 : sans gestionnaire, le signal d'arrêt est ignoré, Docker attend 10 s puis tue le conteneur (SIGKILL). | `trap 'exit 0' TERM` et `sleep & wait` : arrêt en 0,2 s, code 0. |
-| Connexion de réplication refusée | La règle `host all all` de l'image ne couvre pas le mode réplication. | Ligne `host replication replicator all scram-sha-256` ajoutée dans `pg_hba.conf` à l'init. |
-| `db` déclaré sain avant d'être prêt | Pendant l'init, Postgres démarre un serveur temporaire qui n'écoute que sur son socket Unix. | `pg_isready -h 127.0.0.1` : test en TCP. |
-| Réplica « healthy » alors qu'il ne réplique plus | `pg_isready` dit seulement que Postgres répond. | Healthcheck sur `pg_stat_wal_receiver.status = streaming`. |
-| Réplica arrêté longtemps → impossible de reprendre | Le primaire recycle son journal ; le réplica ne retrouve plus les segments manquants. | `wal_keep_size=256MB` sur le primaire. |
-| Mot de passe avec une apostrophe → script d'init cassé | Mot de passe collé dans la requête SQL. | Variable psql `:'pw'`, échappée par psql. Testé avec `rep'li`. |
-| Mots de passe visibles avec `docker inspect` | Ils étaient passés en variables d'environnement. | Secrets Compose (fichiers montés dans `/run/secrets/`). |
-| Mot de passe de réplication en clair sur le disque du réplica | `pg_basebackup -R` recopie dans `postgresql.auto.conf` le mot de passe reçu par variable. Vu en testant. | Connexion avec un fichier `.pgpass` : la config ne contient que `passfile=…`. |
-| `postgres` ne peut pas écrire dans le volume de sauvegarde | Un volume monté sur un chemin absent de l'image (`/backups`) appartient à root. | Monter sur `/var/lib/postgresql`, qui appartient à `postgres` dans l'image : le volume en hérite. |
-| Exemple du cours (v18 + volume sur `/var/lib/postgresql/data`) : le conteneur s'arrête | Depuis la v18, l'image range les données dans `/var/lib/postgresql/18/docker` et refuse l'ancien point de montage. | Volume monté sur `/var/lib/postgresql`. |
-| Mot de passe avec `:`, `'` ou `\`, ou fichier créé sous Windows (CRLF) | `:` et `\` sont des séparateurs du format `.pgpass` ; Windows ajoute `\r\n`. | Échappement dans le `.pgpass`, suppression de `\r\n` à la lecture. Testé avec `R:e'p\li` et un fichier CRLF. |
-| Tri des accents incorrect sous Alpine | La bibliothèque C d'Alpine (musl) trie octet par octet. | Collation ICU `fr-FR` à l'initialisation. |
-| Sauvegarde partielle prise pour une vraie | `pg_dump` interrompu laisse un fichier incomplet. | Écriture en `.tmp`, renommé seulement en cas de succès. |
-| Restauration sur une base existante | `pg_restore` échoue sur les tables déjà présentes ; un réplica refuse les écritures. | `--clean --if-exists --single-transaction`, toujours vers `db`. |
-| Changer le schéma sans effet | `db/init/` n'est joué que sur un volume vide. | En dev : `docker compose down -v`. En prod : un outil de migrations (§4). |
-| Scripts `.sh` cassés sous Windows | Conversion des fins de ligne en CRLF. | `.gitattributes` : `*.sh text eol=lf`. |
+**Un ancien volume bloquait le démarrage.** En testant sur Windows, `db` restait `unhealthy`. Le volume `db-data` existait déjà, d'un premier essai en version 17, et Postgres 18 refuse de démarrer sur des données d'une autre version. La solution : `docker compose down -v` pour repartir de volumes vides.
 
----
+**Le mot de passe de réplication écrit en clair.** En testant, on a vu que `pg_basebackup` recopiait le mot de passe dans la configuration du réplica. On passe maintenant par un fichier `.pgpass`, et la configuration ne contient plus que son chemin.
 
-## 4. Améliorations possibles
+**Les droits sur les volumes sans root.** Un volume monté sur un dossier qui n'existe pas dans l'image appartient à root, donc l'utilisateur `postgres` ne pouvait pas y écrire. On monte tout sur `/var/lib/postgresql`, qui appartient déjà à `postgres` dans l'image : le volume hérite de ce propriétaire.
 
-**Haute disponibilité**
-- Bascule manuelle si le primaire meurt : `SELECT pg_promote();` sur le réplica, puis pointer l'appli vers `db-replica`.
-- Bascule automatique : Patroni ou repmgr, avec un point d'entrée unique (HAProxy, PgBouncer) qui suit le primaire.
-- Slot de réplication (`pg_basebackup -C -S replica`) : le primaire garde tout le WAL nécessaire au réplica, quelle que soit la durée de la coupure. Contrepartie : un réplica disparu définitivement remplit le disque du primaire.
-- Réplication synchrone si aucune perte de données n'est tolérée.
+**Le conteneur de sauvegarde mettait 10 secondes à s'arrêter.** Le script ignorait le signal d'arrêt de Docker, qui finissait par le tuer (code 137). Avec un `trap`, il s'arrête maintenant tout de suite et proprement.
 
-**Sécurité**
-- Secrets chiffrés : en dehors de Swarm, un secret Compose est un simple fichier monté en lecture seule, non chiffré. Swarm ou un coffre-fort (Vault) les chiffrent.
-- Supprimer aussi les capacités Linux inutiles (`cap_drop: [ALL]` puis le strict nécessaire), comme dans la démo de hardening du cours.
-- Scanner les images (Trivy, Dockle) et le dépôt (Gitleaks) avant chaque livraison.
-- Un compte de sauvegarde en lecture seule (`pg_read_all_data`) au lieu de l'administrateur pour `backup`.
-- Chiffrer les sauvegardes (`age`, `gpg`) avant de les copier ailleurs.
+**La base annoncée prête trop tôt.** Pendant son initialisation, Postgres tourne quelques secondes sans être joignable par le réseau. Le healthcheck le teste donc par le réseau (`-h 127.0.0.1`), sinon les autres services se connectaient trop tôt.
 
-**Sauvegardes**
-- Règle 3-2-1 : 3 copies, 2 supports, 1 hors site. Aujourd'hui les dumps sont sur la même machine. → Envoi vers un stockage objet (S3, MinIO) ou un NAS.
-- Tester la restauration automatiquement dans une base jetable : une sauvegarde jamais restaurée n'est pas une sauvegarde.
-- Restauration à la seconde près (PITR) par archivage du WAL (pgBackRest, WAL-G).
+**Le réplica annoncé sain alors qu'il ne répliquait plus.** `pg_isready` dit seulement si Postgres répond. On vérifie maintenant l'état de la réplication elle-même.
 
-**Exploitation**
-- `postgres-exporter` + alertes : réplica `unhealthy`, retard de réplication, sauvegarde trop ancienne.
-- Limites CPU / mémoire par service.
-- Outil de migrations (Alembic, Flyway, Prisma… selon l'appli) pour faire évoluer le schéma sans perdre les données.
+**Les mots de passe avec des caractères spéciaux.** Une apostrophe cassait le script de création du compte, et `:` casse le format `.pgpass`. Les deux sont maintenant échappés, et les retours à la ligne ajoutés par Windows sont retirés.
 
----
+**Les scripts cassés sous Windows.** Git convertit parfois les fins de ligne. Le fichier `.gitattributes` force le format Linux pour les `.sh`.
 
-## 5. Optimiser
+## Ce qu'on améliorerait
 
-**Requêtes (avec l'équipe appli)**
-- Mesurer avant d'optimiser : `EXPLAIN ANALYZE`.
-- Index sur les colonnes filtrées et triées : `CREATE INDEX ON tickets (status, created_at DESC);`
-- Pagination par curseur (`WHERE id < $dernier ORDER BY id DESC LIMIT 20`) plutôt que `OFFSET`, qui relit les lignes sautées.
-- Requêtes paramétrées + pool de connexions côté appli.
-- Envoyer les lectures lourdes (stats, exports) sur `db-replica` : le primaire reste disponible pour les écritures.
+- **Bascule en cas de panne** : aujourd'hui, si la base principale tombe, il faut promouvoir le réplica à la main (`SELECT pg_promote();`). Des outils comme Patroni le font automatiquement.
+- **Sauvegardes hors de la machine** : elles sont sur le même PC que la base. La règle 3-2-1 veut 3 copies, sur 2 supports, dont 1 ailleurs (un NAS, un stockage S3).
+- **Tester les restaurations automatiquement**, parce qu'une sauvegarde qu'on n'a jamais restaurée n'est pas fiable.
+- **Restaurer à la seconde près** en archivant le journal (pgBackRest), au lieu de perdre jusqu'à une heure de données.
+- **Chiffrer les secrets et les sauvegardes** : hors Swarm, un secret Compose est un simple fichier, pas chiffré.
+- **Superviser la base** avec `postgres-exporter` et des alertes : retard de réplication, sauvegarde trop ancienne.
+- **Un outil de migrations** (Alembic, Flyway…) pour faire évoluer le schéma sans supprimer les données.
 
-**Serveur**
-- `shared_buffers` ≈ 25 % de la RAM allouée, `work_mem` selon les tris : `command: ["postgres", "-c", "shared_buffers=256MB"]`.
-- PgBouncer devant Postgres si de nombreuses instances de l'appli ouvrent des connexions.
+## Comment optimiser
 
-**Sauvegardes**
-- Déjà en place : compression `zstd` et lecture sur le réplica.
-- Grosse base : dump parallèle `pg_dump -Fd -j 4` (format répertoire, 4 processus).
-- `BACKUP_INTERVAL` = perte de données acceptable (RPO) : toutes les heures = au pire une heure perdue.
+- Mesurer avant d'optimiser, avec `EXPLAIN ANALYZE`.
+- Ajouter un index quand la table grossit, par exemple `CREATE INDEX ON tickets (status, created_at DESC);`.
+- Paginer la liste des tickets (`WHERE id < ... LIMIT 20`) plutôt que de tout renvoyer.
+- Envoyer les lectures lourdes (statistiques, exports) sur le réplica, pour laisser la base principale aux écritures.
+- Ajuster la mémoire de Postgres (`shared_buffers`) une fois qu'on connaît la charge réelle.
+- Pour une grosse base, faire des sauvegardes en parallèle (`pg_dump -Fd -j 4`).
