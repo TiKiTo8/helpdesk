@@ -49,4 +49,4 @@ Chacun doit pouvoir expliquer sa partie : comment elle marche, pourquoi on a fai
 
 La partie base de données est détaillée dans [docs/base-de-donnees.md](docs/base-de-donnees.md).
 
-La partie reverse proxy, bind mounts et alertes (Maxime) est détaillée dans [docs/reverse-proxy-et-alertes.md](docs/reverse-proxy-et-alertes.md).
+La partie reverse proxy, bind mounts et alertes (Maxime) est détaillée dans [MaximeGirard.md](MaximeGirard.md).
