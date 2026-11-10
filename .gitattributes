@@ -1,0 +1,2 @@
+# Les scripts shell doivent rester en LF, même clonés sous Windows (sinon : "not found" au démarrage).
+*.sh text eol=lf
