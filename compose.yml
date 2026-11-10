@@ -1,0 +1,82 @@
+name: helpdesk
+
+services:
+  # ─── Base de données, réplication & sauvegardes (Luka) ───────────────────────
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # Garde 256 Mo de journal (WAL) : un réplica arrêté un moment peut rattraper son retard.
+    command: ["postgres", "-c", "wal_keep_size=256MB"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-helpdesk}
+      POSTGRES_DB: ${POSTGRES_DB:-helpdesk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copier .env.example en .env}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?copier .env.example en .env}   # lu par db/init/02-replication.sh
+    volumes:
+      - db-data:/var/lib/postgresql/data          # volume nommé : les données survivent aux conteneurs
+      - ./db/init:/docker-entrypoint-initdb.d:ro  # bind mount : scripts joués une seule fois, sur volume vide
+    networks: [backend]
+    healthcheck:
+      # -h 127.0.0.1 : pendant l'init, Postgres n'écoute que sur son socket Unix.
+      # Sans ça, le service serait déclaré sain avant d'être réellement prêt.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  db-replica:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    user: postgres
+    entrypoint: ["/bin/sh", "/scripts/replica-entrypoint.sh"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-helpdesk}    # pour le healthcheck
+      POSTGRES_DB: ${POSTGRES_DB:-helpdesk}
+      PGPASSWORD: ${REPLICATION_PASSWORD:?copier .env.example en .env}   # lu par pg_basebackup
+    volumes:
+      - db-replica-data:/var/lib/postgresql/data
+      - ./db/replica:/scripts:ro
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [backend]
+    healthcheck:
+      # Sain seulement si le flux de réplication est actif, pas juste si Postgres répond.
+      test: ["CMD-SHELL", "[ \"$$(psql -U $${POSTGRES_USER} -d $${POSTGRES_DB} -tAc 'SELECT status FROM pg_stat_wal_receiver')\" = streaming ]"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backup:
+    image: postgres:17-alpine   # même version que la base : pg_dump doit être >= au serveur
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/scripts/backup.sh"]
+    environment:
+      PGHOST: db-replica   # dump lu sur le réplica : le primaire n'est pas chargé (repli sur db si absent)
+      PGUSER: ${POSTGRES_USER:-helpdesk}
+      PGDATABASE: ${POSTGRES_DB:-helpdesk}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?copier .env.example en .env}
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-3600}   # secondes entre deux sauvegardes
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}              # nombre de sauvegardes conservées
+    volumes:
+      - backups:/backups               # volume nommé : les sauvegardes
+      - ./backup:/scripts:ro           # bind mount : les scripts
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [backend]
+    healthcheck:
+      # Sain si la dernière sauvegarde a moins de 2 intervalles (BACKUP_INTERVAL / 30 = 2 x intervalle en minutes).
+      test: ["CMD-SHELL", "find /backups -name '*.dump' -mmin -$$((BACKUP_INTERVAL / 30 + 1)) | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  backend:
+    internal: true   # pas d'accès depuis l'hôte ni vers Internet
+
+volumes:
+  db-data:
+  db-replica-data:
+  backups:

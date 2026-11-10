@@ -15,9 +15,9 @@ Projet de conteneurisation B3 — groupe de 3, présentation de 15 min.
 | Bind mounts pour partager le code / la configuration de l'application | Maxime | — |
 | Reverse proxy qui facilite l'accès aux services (Traefik, Caddy, NGINX…) | Maxime | *à définir* |
 | `compose.yml` | TOUS | — |
-| Base de données avec un volume persistant | Luka | *à définir* |
-| Réplication master / slave de la base | Baptiste | — |
-| Volume pour sauvegarder les fichiers de manière persistante (backups) | Luka | *à définir* |
+| Base de données avec un volume persistant | Luka | PostgreSQL 17 |
+| Réplication master / slave de la base | Luka | Réplication en streaming PostgreSQL |
+| Volume pour sauvegarder les fichiers de manière persistante (backups) | Luka | `pg_dump` périodique dans un volume dédié |
 | Mailing et Monitoring | Baptiste | *à définir* |
 
 | Membre | Nom |
