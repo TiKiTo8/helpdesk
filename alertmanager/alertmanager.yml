@@ -1,0 +1,15 @@
+global:
+  smtp_smarthost: mail:1025
+  smtp_from: alertes@helpdesk.localhost
+  smtp_require_tls: false
+
+route:
+  receiver: mail
+  group_wait: 10s
+  repeat_interval: 4h
+
+receivers:
+  - name: mail
+    email_configs:
+      - to: admin@helpdesk.localhost
+        send_resolved: true

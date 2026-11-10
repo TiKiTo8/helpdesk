@@ -196,6 +196,7 @@ services:
     pids_limit: 100
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro,z
       - prometheus-data:/prometheus
     networks: [proxy, backend]
     logging: *logging
@@ -240,6 +241,22 @@ services:
     logging: *logging
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 50
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro,z
+    networks: [proxy]
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9093/-/healthy"]
       interval: 10s
       timeout: 3s
       retries: 3
