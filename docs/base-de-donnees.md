@@ -95,9 +95,11 @@ docker compose cp backup:/var/lib/postgresql/backups ./backups-export
 5. On vide la table, on restaure la dernière sauvegarde : les tickets reviennent, sur la base et sur le réplica.
 6. `docker compose down` puis `up` : tout est toujours là.
 
-## Pour le reste de l'équipe
+## Le lien avec l'application
 
-L'application se connecte à l'hôte `db`, port 5432, avec l'utilisateur `app`. Son mot de passe est dans le secret `app_password` : il faut ajouter ce secret au service de l'appli et le lire dans `/run/secrets/app_password`. Le service doit être sur le réseau `backend` et dépendre de `db` avec `condition: service_healthy`. Pour les lectures qui peuvent avoir quelques millisecondes de retard (comme les statistiques), on peut utiliser `db-replica` avec le même compte.
+Le service `api` est branché sur la base. Il se connecte à `db` avec l'utilisateur `app` et lit son mot de passe dans le secret `/run/secrets/app_password`, comme les autres services : l'ancienne variable `DATABASE_URL`, qui contenait le mot de passe en clair, a disparu. Les statistiques sont lues sur `db-replica`, puisqu'elles peuvent avoir quelques millisecondes de retard ; si le réplica ne répond pas, l'appli passe par `db`.
+
+Le service `api` est sur le réseau `backend` et attend que `db` soit sain avant de démarrer. Pour qu'il soit accessible depuis le navigateur, il faudra l'ajouter aussi au réseau du reverse proxy.
 
 ## Les difficultés rencontrées
 
