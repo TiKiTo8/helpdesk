@@ -1,6 +1,6 @@
-"""API Helpdesk : tickets de support.
+"""API du helpdesk.
 
-Dépendances externes (toutes configurées par variables d'environnement) :
+Tout se configure avec des variables d'environnement :
   DATABASE_URL  obligatoire  PostgreSQL (écritures + lectures)
   REPLICA_URL   optionnel    réplica PostgreSQL pour /api/stats (sinon : primaire)
   REDIS_URL     optionnel    cache de la liste des tickets (sinon : pas de cache)
@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 try:
     import redis
-except ImportError:  # redis n'est qu'un accélérateur
+except ImportError:  # redis est optionnel
     redis = None
 
 CACHE_KEY = "tickets"
@@ -47,7 +47,7 @@ cache = (
     else None
 )
 
-# Métriques Prometheus (exposées sur /metrics)
+# Métriques lues par Prometheus sur /metrics
 TICKETS_CREATED = Counter("helpdesk_tickets_created_total", "Tickets créés")
 TICKETS_CLOSED = Counter("helpdesk_tickets_closed_total", "Tickets fermés")
 CACHE_REQUESTS = Counter("helpdesk_cache_requests_total", "Lectures de la liste", ["result"])
@@ -67,7 +67,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Helpdesk", lifespan=lifespan)
-app.mount("/metrics", make_asgi_app())  # à scraper en interne, ne pas router vers l'extérieur
+app.mount("/metrics", make_asgi_app())  # lu par Prometheus en interne, pas exposé par le proxy
 
 
 class TicketIn(BaseModel):
@@ -76,7 +76,7 @@ class TicketIn(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", max_length=254)
 
 
-# Le cache est un accélérateur, pas une dépendance : si Redis tombe, on lit la base.
+# Si Redis ne répond pas, on lit directement la base.
 def cache_get() -> list | None:
     if not cache:
         return None
@@ -110,7 +110,7 @@ def send_mail(ticket: dict) -> None:
         msg = EmailMessage()
         msg["From"] = "helpdesk@helpdesk.localhost"
         msg["To"] = ticket["email"]
-        title = " ".join(ticket["title"].split())  # pas de retour à la ligne dans un en-tête
+        title = " ".join(ticket["title"].split())  # un retour à la ligne casserait l'en-tête du mail
         msg["Subject"] = f"Ticket #{ticket['id']} créé : {title}"
         msg.set_content(f"Votre demande a bien été enregistrée.\n\n{ticket['description']}")
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=5) as smtp:
@@ -149,7 +149,7 @@ def create_ticket(ticket: TicketIn, background: BackgroundTasks):
         ).fetchone()
     cache_invalidate()
     TICKETS_CREATED.inc()
-    background.add_task(send_mail, row)  # après la réponse : un SMTP lent ne ralentit pas l'utilisateur
+    background.add_task(send_mail, row)  # envoyé après la réponse, l'utilisateur n'attend pas le mail
     return row
 
 
@@ -168,8 +168,8 @@ def close_ticket(ticket_id: int):
 
 @app.get("/api/stats")
 def stats():
-    # Lecture de reporting : tolère quelques ms de retard, donc servie par le réplica s'il existe.
-    # Réplica absent ou indisponible -> repli sur le primaire.
+    # Les stats peuvent avoir un peu de retard, on les lit donc sur le réplica.
+    # S'il ne répond pas, on passe par la base principale.
     query = "SELECT status, count(*) AS total FROM tickets GROUP BY status"
     source = "primary"
     rows = None
